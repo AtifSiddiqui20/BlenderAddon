@@ -1,7 +1,8 @@
 bl_info = {
     "name": "View and Movement Tools",
     "author" : "Attaboy!",
-    "blender": (3, 60, 0),
+    "version" : (0, 0, 1),
+    "blender": (3, 6, 0),
     "category": "Grease Pencil",
     "location": "View 3D > Tool Shelf > My Tools",
     "description": "Create and edit 2d faces with Grease Pencil",
@@ -115,18 +116,41 @@ class ViewCenterOrigin(bpy.types.Operator):
 
     def create_default_gp_material(self, gp_obj):
         # Create a new material
-        mat = bpy.data.materials.new(name="GP Default Material")
-        mat_gp = mat.grease_pencil
-        if not mat_gp:
-            mat_gp = mat.grease_pencil
+        if not gp_obj.data.materials:
+            mat = bpy.data.materials.new(name="GP Default Material")
+            bpy.data.materials.create_gpencil_data(mat)
+            mat.grease_pencil.color = (0.4, 0.2, 0.8, 1.0)
+            gp_obj.data.materials.append(mat)
+        return gp_obj.data.materials[0]
 
-        # Add the material to the grease pencil data
-        gp_obj.data.materials.append(mat)
+class GPAddNewLayer(bpy.types.Operator):
+    """Add a new layer to the active Grease Pencil object"""
+    bl_idname = "gpencil.add_new_layer"
+    bl_label = "New Layer"
+    bl_options = {'REGISTER', 'UNDO'}
 
-        # Set up the material properties
-        mat_gp.color = (0.4, 0.2, 0.8, 1.0)
+    def execute(self, context):
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GPENCIL':
+            new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
+            new_layer.info = "New GP Layer"  # Optional: set a name for the layer
+            new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
+            self.report({'INFO'}, "New layer added and activated for drawing.")
+            return {'FINISHED'}
+        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+        return {'CANCELLED'}
 
 
+class GPDoneDrawing(bpy.types.Operator):
+    """Exit draw mode"""
+    bl_idname = "gpencil.done_drawing"
+    bl_label = "Done"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        context.active_object.select_set(True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return {'FINISHED'}
 
         
 # Panel to hold the buttons
@@ -141,18 +165,28 @@ class ToolsPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator(ObjectMoveX.bl_idname, text="Move X by One")
-        layout.operator(ViewCenterOrigin.bl_idname, text="Create Plane on Origin")
+        layout.operator(ViewCenterOrigin.bl_idname, text="Create Grease Pencil")
+        
+        if context.object and context.object.type == 'GPENCIL' and context.mode == 'PAINT_GPENCIL':
+            layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            layout.operator(GPDoneDrawing.bl_idname, text="Done")
 
-# Registration
+
+#Registration
+            
 def register():
     bpy.utils.register_class(ObjectMoveX)
     bpy.utils.register_class(ViewCenterOrigin)
     bpy.utils.register_class(ToolsPanel)
+    bpy.utils.register_class(GPAddNewLayer)
+    bpy.utils.register_class(GPDoneDrawing)
 
 def unregister():
     bpy.utils.unregister_class(ObjectMoveX)
     bpy.utils.unregister_class(ViewCenterOrigin)
     bpy.utils.unregister_class(ToolsPanel)
+    bpy.utils.unregister_class(GPAddNewLayer)
+    bpy.utils.unregister_class(GPDoneDrawing)
 
 if __name__ == "__main__":
     register()
