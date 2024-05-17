@@ -10,8 +10,8 @@ bl_info = {
 
 import bpy
 
-
 no_of_face_items = 0
+
 
 # Operator to center view on the world origin
 class ViewCenterOrigin(bpy.types.Operator):
@@ -131,8 +131,6 @@ class GPAddNewLayer(bpy.types.Operator):
         return {'CANCELLED'}
 
 
-
-
 class GPDoneDrawing(bpy.types.Operator):
     """Exit draw mode and arrange duplicated GP objects"""
     bl_idname = "gpencil.done_drawing"
@@ -141,7 +139,33 @@ class GPDoneDrawing(bpy.types.Operator):
 
     def execute(self, context):
         context.active_object.select_set(True)
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GPENCIL':
+            # Create or get the vertex group
+            vgroup_name = "GP Vertices"
+            if vgroup_name not in gp_obj.vertex_groups:
+                gp_obj.vertex_groups.new(name=vgroup_name)
+
+            # Enter edit mode
+            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+
+            # Reveal all existing layers in the original GP object
+            for layer in gp_obj.data.layers:
+                layer.hide = False
+
+            # Select all strokes
+            bpy.ops.gpencil.select_all(action='SELECT')
+
+            # Assign selected vertices to the vertex group
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    for region in area.regions:
+                        if region.type == 'WINDOW':
+                            override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
+                            bpy.ops.gpencil.vertex_group_assign(override)
+                            break
         bpy.ops.object.mode_set(mode='OBJECT')
+        self.report({'INFO'}, "Vertices added to mouth controller vertex group.")
 
         # Arrange the duplicated objects in the "Duplicated GP Objects" collection
         collection_name = "Mouth Rig Control Board Objects"
@@ -168,54 +192,55 @@ class GPDoneDrawing(bpy.types.Operator):
 
                 # Can create the box based on the count of objects
 
-
                 # Check if we need to move to the next row
                 if (index + 1) % items_per_row == 0:
                     x = 2.0  # Reset x position for the new row
                     z -= spacing_z  # Move to the next row
 
-            self.report({'INFO'}, f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
+            self.report({'INFO'},
+                        f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
         else:
             self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
 
         return {'FINISHED'}
 
-class GPAddVerticesToGroup(bpy.types.Operator):
-    """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
-    bl_idname = "gpencil.add_vertices_to_group"
-    bl_label = "Add Vertices to Group"
-    bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
-        gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GPENCIL':
-            # Create or get the vertex group
-            vgroup_name = "GP Vertices"
-            if vgroup_name not in gp_obj.vertex_groups:
-                gp_obj.vertex_groups.new(name=vgroup_name)
-
-            # Enter edit mode
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-
-            # Select all strokes
-            bpy.ops.gpencil.select_all(action='SELECT')
-
-            # Assign selected vertices to the vertex group
-            for area in bpy.context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    for region in area.regions:
-                        if region.type == 'WINDOW':
-                            override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
-                            bpy.ops.gpencil.vertex_group_assign(override)
-                            break
-
-            # Return to paint mode
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
-
-            self.report({'INFO'}, "Vertices added to vertex group.")
-            return {'FINISHED'}
-        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
-        return {'CANCELLED'}
+# class GPAddVerticesToGroup(bpy.types.Operator):
+#     """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
+#     bl_idname = "gpencil.add_vertices_to_group"
+#     bl_label = "Add Vertices to Group"
+#     bl_options = {'REGISTER', 'UNDO'}
+#
+#     def execute(self, context):
+#         gp_obj = context.active_object
+#         if gp_obj and gp_obj.type == 'GPENCIL':
+#             # Create or get the vertex group
+#             vgroup_name = "GP Vertices"
+#             if vgroup_name not in gp_obj.vertex_groups:
+#                 gp_obj.vertex_groups.new(name=vgroup_name)
+#
+#             # Enter edit mode
+#             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+#
+#             # Select all strokes
+#             bpy.ops.gpencil.select_all(action='SELECT')
+#
+#             # Assign selected vertices to the vertex group
+#             for area in bpy.context.screen.areas:
+#                 if area.type == 'VIEW_3D':
+#                     for region in area.regions:
+#                         if region.type == 'WINDOW':
+#                             override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
+#                             bpy.ops.gpencil.vertex_group_assign(override)
+#                             break
+#
+#             # Return to paint mode
+#             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+#
+#             self.report({'INFO'}, "Vertices added to vertex group.")
+#             return {'FINISHED'}
+#         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+#         return {'CANCELLED'}
 
 class CreateRig(bpy.types.Operator):
     """Create a rig with two bones: one named after the vertex group and the other named root"""
@@ -232,9 +257,6 @@ class CreateRig(bpy.types.Operator):
                 self.report({'ERROR'}, f"Vertex group '{vgroup_name}' not found.")
                 return {'CANCELLED'}
 
-
-
-
             # Create a new armature object
             bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
             armature = context.object
@@ -247,9 +269,8 @@ class CreateRig(bpy.types.Operator):
             # Create the root bone, it's size is based on the GP object
             root_bone = bones[0]
             root_bone.name = "root"
-            root_bone.head= (0, 0, 0)
+            root_bone.head = (0, 0, 0)
             root_bone.tail = (0, 0, 0.5)
-
 
             # Create the named bone
             named_bone = bones.new(vgroup_name)
@@ -278,6 +299,7 @@ class CreateRig(bpy.types.Operator):
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
+
 
 class FinishMouthShape(bpy.types.Operator):
     """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
@@ -316,15 +338,12 @@ class FinishMouthShape(bpy.types.Operator):
                 if new_collection.name not in parent_collection.children:
                     parent_collection.children.link(new_collection)
 
-
             # Link the duplicated object to the new collection
             new_collection.objects.link(gp_duplicate)
             parent_collection.objects.unlink(gp_duplicate)
             # context.collection.objects.unlink(gp_duplicate)
             # Get the count of finished mouth shapes
             count = context.scene.finish_mouth_count
-
-
 
             # Increment the count
             context.scene.finish_mouth_count += 1
@@ -370,7 +389,7 @@ class ToolsPanel(bpy.types.Panel):
 
         if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
             layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
+            # layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
             layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             layout.operator(GPDoneDrawing.bl_idname, text="Done")
         if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
@@ -383,18 +402,19 @@ def register():
     bpy.utils.register_class(ViewCenterOrigin)
     bpy.utils.register_class(ToolsPanel)
     bpy.utils.register_class(GPAddNewLayer)
-    bpy.utils.register_class(GPAddVerticesToGroup)
+    # bpy.utils.register_class(GPAddVerticesToGroup)
     bpy.utils.register_class(CreateRig)
     bpy.utils.register_class(GPDoneDrawing)
     bpy.utils.register_class(FinishMouthShape)
 
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
 
+
 def unregister():
     bpy.utils.unregister_class(ViewCenterOrigin)
     bpy.utils.unregister_class(ToolsPanel)
     bpy.utils.unregister_class(GPAddNewLayer)
-    bpy.utils.unregister_class(GPAddVerticesToGroup)
+    # bpy.utils.unregister_class(GPAddVerticesToGroup)
     bpy.utils.unregister_class(CreateRig)
     bpy.utils.unregister_class(GPDoneDrawing)
     bpy.utils.unregister_class(FinishMouthShape)
@@ -404,4 +424,3 @@ def unregister():
 
 if __name__ == "__main__":
     register()
-
