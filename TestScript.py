@@ -131,8 +131,10 @@ class GPAddNewLayer(bpy.types.Operator):
         return {'CANCELLED'}
 
 
+
+
 class GPDoneDrawing(bpy.types.Operator):
-    """Exit draw mode"""
+    """Exit draw mode and arrange duplicated GP objects"""
     bl_idname = "gpencil.done_drawing"
     bl_label = "Done"
     bl_options = {'REGISTER', 'UNDO'}
@@ -140,8 +142,43 @@ class GPDoneDrawing(bpy.types.Operator):
     def execute(self, context):
         context.active_object.select_set(True)
         bpy.ops.object.mode_set(mode='OBJECT')
-        return {'FINISHED'}
 
+        # Arrange the duplicated objects in the "Duplicated GP Objects" collection
+        collection_name = "Mouth Rig Control Board Objects"
+        collection = bpy.data.collections.get(collection_name)
+
+        if collection is not None:
+            # Define the spacing between objects
+            spacing_x = .5
+            spacing_z = .2
+            items_per_row = 4
+
+            # Initialize the position variables
+            x = 2.0
+            z = 2.0
+
+            # Iterate through the objects in the collection
+            for index, obj in enumerate(collection.objects):
+                # Set the object's location
+                obj.location.x = x
+                obj.location.z = z
+
+                # Update the x position for the next object
+                x += spacing_x
+
+                # Can create the box based on the count of objects
+
+
+                # Check if we need to move to the next row
+                if (index + 1) % items_per_row == 0:
+                    x = 2.0  # Reset x position for the new row
+                    z -= spacing_z  # Move to the next row
+
+            self.report({'INFO'}, f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
+        else:
+            self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
+
+        return {'FINISHED'}
 
 class GPAddVerticesToGroup(bpy.types.Operator):
     """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
@@ -259,19 +296,35 @@ class FinishMouthShape(bpy.types.Operator):
             bpy.ops.object.duplicate()
             gp_duplicate = context.active_object
 
-            # Scale the duplicate to be a bit smaller
+            # Scale the duplicate
             gp_duplicate.scale *= 0.2
+
+            # Create or get the "Mouth Rig Control Board Objects" collection within "Temp Drawing Collection"
+            parent_collection_name = "Temp Drawing Collection"
+            new_collection_name = "Mouth Rig Control Board Objects"
+
+            parent_collection = bpy.data.collections.get(parent_collection_name)
+            if not parent_collection:
+                parent_collection = bpy.data.collections.new(parent_collection_name)
+                context.scene.collection.children.link(parent_collection)
+
+            new_collection = bpy.data.collections.get(new_collection_name)
+            if not new_collection:
+                new_collection = bpy.data.collections.new(new_collection_name)
+                parent_collection.children.link(new_collection)
+            else:
+                if new_collection.name not in parent_collection.children:
+                    parent_collection.children.link(new_collection)
+
+
+            # Link the duplicated object to the new collection
+            new_collection.objects.link(gp_duplicate)
+            parent_collection.objects.unlink(gp_duplicate)
+            # context.collection.objects.unlink(gp_duplicate)
             # Get the count of finished mouth shapes
             count = context.scene.finish_mouth_count
 
-            # Calculate the position based on count (4 per row, then next row)
-            row_length = 4
-            x_offset = (count % row_length) * .5
-            y_offset = (count // row_length) * -.5
 
-            # Move the duplicate to the calculated position
-            gp_duplicate.location.x += x_offset
-            gp_duplicate.location.y += y_offset
 
             # Increment the count
             context.scene.finish_mouth_count += 1
@@ -318,9 +371,8 @@ class ToolsPanel(bpy.types.Panel):
         if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
             layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
             layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
-            layout.operator(GPDoneDrawing.bl_idname, text="Done")
             layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
-
+            layout.operator(GPDoneDrawing.bl_idname, text="Done")
         if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
             layout.operator(CreateRig.bl_idname, text="Create Rig")
 
@@ -337,6 +389,7 @@ def register():
     bpy.utils.register_class(FinishMouthShape)
 
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
+
 def unregister():
     bpy.utils.unregister_class(ViewCenterOrigin)
     bpy.utils.unregister_class(ToolsPanel)
@@ -345,7 +398,9 @@ def unregister():
     bpy.utils.unregister_class(CreateRig)
     bpy.utils.unregister_class(GPDoneDrawing)
     bpy.utils.unregister_class(FinishMouthShape)
+
     del bpy.types.Scene.finish_mouth_count
+
 
 if __name__ == "__main__":
     register()
