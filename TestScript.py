@@ -180,12 +180,14 @@ class GPDoneDrawing(bpy.types.Operator):
             # Initialize the position variables
             x = 2.0
             z = 2.0
+            plSize = 0  # initialize the plane size
 
             # Iterate through the objects in the collection
             for index, obj in enumerate(collection.objects):
                 # Set the object's location
                 obj.location.x = x
                 obj.location.z = z
+                plSize += 1
 
                 # Update the x position for the next object
                 x += spacing_x
@@ -197,6 +199,11 @@ class GPDoneDrawing(bpy.types.Operator):
                     x = 2.0  # Reset x position for the new row
                     z -= spacing_z  # Move to the next row
 
+            # Create Another Plane and resize it ot the size of the mouths
+            bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=False, location=(2, 0, 2), rotation=(1.5708, 0, 0))
+            plane = context.active_object
+            plane.name = "Mouths Control Board Plane"
+            plane.scale = (plSize / 4, 1, plSize / 4)
             self.report({'INFO'},
                         f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
         else:
