@@ -204,8 +204,10 @@ class GPDoneDrawing(bpy.types.Operator):
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
             plane = context.active_object
             plane.name = "Mouths Control Board Plane"
-            plane.scale = (1.8, plsize / 3.2, plsize / 3.2)
-
+            if plsize != 0:
+                plane.scale = (1.8, plsize / 2, plsize / 2)
+            else:
+                plane.scale = (1.8, .403, .403)
             # Change origin to the leftmost top vertex
             plane_mesh = plane.data
             bmesh_plane = bmesh.from_edit_mesh(plane_mesh)
