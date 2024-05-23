@@ -9,6 +9,7 @@ bl_info = {
 }
 
 import bpy
+import bmesh
 
 no_of_face_items = 0
 
@@ -180,30 +181,88 @@ class GPDoneDrawing(bpy.types.Operator):
             # Initialize the position variables
             x = 2.0
             z = 2.0
-            plSize = 0  # initialize the plane size
+            plsize = 0  # initialize the plane size
 
             # Iterate through the objects in the collection
             for index, obj in enumerate(collection.objects):
                 # Set the object's location
                 obj.location.x = x
                 obj.location.z = z
-                plSize += 1
+                obj.hide_viewport = False
+
 
                 # Update the x position for the next object
                 x += spacing_x
-
-                # Can create the box based on the count of objects
 
                 # Check if we need to move to the next row
                 if (index + 1) % items_per_row == 0:
                     x = 2.0  # Reset x position for the new row
                     z -= spacing_z  # Move to the next row
+                    plsize += 1     # Increment the plane's z scaling
 
-            # Create Another Plane and resize it ot the size of the mouths
-            bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=False, location=(2, 0, 2), rotation=(1.5708, 0, 0))
+            # Create Another Plane and resize it to the size of the mouths
+            bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
             plane = context.active_object
             plane.name = "Mouths Control Board Plane"
-            plane.scale = (plSize / 4, 1, plSize / 4)
+            plane.scale = (1.8, plsize / 3.2, plsize / 3.2)
+
+            # Change origin to the leftmost top vertex
+            plane_mesh = plane.data
+            bmesh_plane = bmesh.from_edit_mesh(plane_mesh)
+
+            # Ensure lookup table is up-to-date
+            bmesh_plane.verts.ensure_lookup_table()
+
+            # Deselect all vertices first
+            for v in bmesh_plane.verts:
+                v.select = False
+
+            # Select only the top left vertex (index 2 for a rotated plane)
+            bmesh_plane.verts[2].select = True
+
+            # Ensure the selection mode is set to vertex
+            bpy.ops.mesh.select_mode(type='VERT')
+
+            # Update the BMesh and the mesh in Blender
+            bmesh.update_edit_mesh(plane_mesh)
+
+            # Create an override context for the VIEW_3D area and region
+            for area in bpy.context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    for region in area.regions:
+                        if region.type == 'WINDOW':
+                            override = {'area': area, 'region': region, 'edit_object': plane}
+                            bpy.ops.view3d.snap_cursor_to_selected(override)
+                            break
+                    else:
+                        continue
+                    break
+
+            # Return to object mode and set the origin to the cursor
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+            bpy.context.scene.cursor.location = (0, 0, 0)  # Reset the cursor location
+
+            plane.location.x = 1.8
+            plane.location.z = 2.2
+
+            # Make the plane unselectable and change its display type to wire
+            plane.display_type = 'WIRE'
+            plane.hide_select = True
+
+            # Add the plane to the "Mouth Rig Control Board Objects" collection
+            collection.objects.link(plane)
+            context.collection.objects.unlink(plane)
+
+            # Hide everything in the collection from render view
+            for obj in collection.objects:
+                obj.hide_render = True
+
+            # Return to Gpencil object
+            bpy.ops.object.select_all(action='DESELECT')
+            gp_obj.select_set(True)
+            context.view_layer.objects.active = gp_obj
+
             self.report({'INFO'},
                         f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
         else:
@@ -324,6 +383,9 @@ class FinishMouthShape(bpy.types.Operator):
             gp_obj.select_set(True)
             bpy.ops.object.duplicate()
             gp_duplicate = context.active_object
+            gp_duplicate.hide_viewport = True
+            # Need to set gp_duplicate name to layer name of original gp object
+            gp_duplicate.name = f"Mouth Shape {context.scene.finish_mouth_count}"
 
             # Scale the duplicate
             gp_duplicate.scale *= 0.2
