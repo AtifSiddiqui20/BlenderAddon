@@ -11,8 +11,6 @@ bl_info = {
 import bpy
 import bmesh
 
-no_of_face_items = 0
-
 
 # Operator to center view on the world origin
 class ViewCenterOrigin(bpy.types.Operator):
@@ -126,6 +124,8 @@ class GPAddNewLayer(bpy.types.Operator):
             new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
             new_layer.info = "New GP Layer"  # Optional: set a name for the layer
             new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
+            face_layer_count = context.scene.face_layers
+            face_layer_count += 1
             self.report({'INFO'}, "New layer added and activated for drawing.")
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
@@ -273,48 +273,13 @@ class GPDoneDrawing(bpy.types.Operator):
         return {'FINISHED'}
 
 
-# class GPAddVerticesToGroup(bpy.types.Operator):
-#     """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
-#     bl_idname = "gpencil.add_vertices_to_group"
-#     bl_label = "Add Vertices to Group"
-#     bl_options = {'REGISTER', 'UNDO'}
-#
-#     def execute(self, context):
-#         gp_obj = context.active_object
-#         if gp_obj and gp_obj.type == 'GPENCIL':
-#             # Create or get the vertex group
-#             vgroup_name = "GP Vertices"
-#             if vgroup_name not in gp_obj.vertex_groups:
-#                 gp_obj.vertex_groups.new(name=vgroup_name)
-#
-#             # Enter edit mode
-#             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
-#
-#             # Select all strokes
-#             bpy.ops.gpencil.select_all(action='SELECT')
-#
-#             # Assign selected vertices to the vertex group
-#             for area in bpy.context.screen.areas:
-#                 if area.type == 'VIEW_3D':
-#                     for region in area.regions:
-#                         if region.type == 'WINDOW':
-#                             override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
-#                             bpy.ops.gpencil.vertex_group_assign(override)
-#                             break
-#
-#             # Return to paint mode
-#             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
-#
-#             self.report({'INFO'}, "Vertices added to vertex group.")
-#             return {'FINISHED'}
-#         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
-#         return {'CANCELLED'}
-
 class CreateRig(bpy.types.Operator):
     """Create a rig with two bones: one named after the vertex group and the other named root"""
     bl_idname = "object.create_rig"
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    
 
     def execute(self, context):
         # Get the active object
@@ -369,16 +334,55 @@ class CreateRig(bpy.types.Operator):
         return {'CANCELLED'}
 
 
+class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
+    mouth_shape_name: bpy.props.StringProperty(
+        name="Mouth Shape Name",
+        description="Enter a name for the mouth shape",
+        default="",
+        maxlen=25,
+    )
+
 class FinishMouthShape(bpy.types.Operator):
     """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
     bl_idname = "gpencil.finish_mouth_shape"
     bl_label = "Finish Mouth Shape"
     bl_options = {'REGISTER', 'UNDO'}
-
+    
+    def is_layer_empty(self, layer):
+        """Check if a Grease Pencil layer is empty"""
+        for frame in layer.frames:
+            if frame.strokes:
+                return False
+        return True
+    
     def execute(self, context):
+        # Get the name for the mouth shape from the property group
+        mouth_name = bpy.context.scene.grease_pencil_face_rig_settings.mouth_shape_name
+       # print(mouth_name)
+
+        # Check if the mouth shape name is provided
+        if not mouth_name:
+            self.report({'WARNING'}, "You should enter a name for the mouth shape")
+            return {'CANCELLED'}
+        
+        
         # Get the active object
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
+            
+            # Check if all visible layers are empty
+            all_empty = True
+            for layer in gp_obj.data.layers:
+                if not layer.hide and not self.is_layer_empty(layer):
+                    all_empty = False
+                    break
+
+            if all_empty:
+                self.report({'WARNING'}, "No shapes drawn in visible layers")
+                return {'CANCELLED'}
+            for layer in gp_obj.data.layers:
+                if not layer.hide:
+                    layer.info = mouth_name
             # Duplicate the Grease Pencil object
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.select_all(action='DESELECT')
@@ -386,8 +390,8 @@ class FinishMouthShape(bpy.types.Operator):
             bpy.ops.object.duplicate()
             gp_duplicate = context.active_object
             gp_duplicate.hide_viewport = True
-            # Need to set gp_duplicate name to layer name of original gp object
-            gp_duplicate.name = f"Mouth Shape {context.scene.finish_mouth_count}"
+            # Set gp_duplicate name to the provided mouth shape name
+            gp_duplicate.name = mouth_name
 
             # Scale the duplicate
             gp_duplicate.scale *= 0.2
@@ -435,6 +439,9 @@ class FinishMouthShape(bpy.types.Operator):
 
             # Enter draw mode on the original GP object
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            
+             # Clear the mouth_shape_name property
+            context.scene.grease_pencil_face_rig_settings.mouth_shape_name = ""
 
             self.report({'INFO'}, "Mouth shape finished. Ready for new drawing.")
             return {'FINISHED'}
@@ -452,6 +459,7 @@ class ToolsPanel(bpy.types.Panel):
     bl_category = 'My Tools'
 
     def draw(self, context):
+        name = context.scene.grease_pencil_face_rig_settings
         layout = self.layout
         obj = context.object
 
@@ -461,7 +469,11 @@ class ToolsPanel(bpy.types.Panel):
         if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
             layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
             # layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
+            # Add text field and Finish Mouth Shape operator
+            row = layout.row()
+            row.prop(name, "mouth_shape_name")
             layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+            
             layout.operator(GPDoneDrawing.bl_idname, text="Done")
         if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
             layout.operator(CreateRig.bl_idname, text="Create Rig")
@@ -469,29 +481,82 @@ class ToolsPanel(bpy.types.Panel):
 
 # Registration
 
+
+classes = (
+    GreasePencilFaceRigSettings,
+    FinishMouthShape,
+    ViewCenterOrigin,
+    ToolsPanel,
+    GPAddNewLayer,
+    CreateRig,
+    GPDoneDrawing
+)
+
 def register():
-    bpy.utils.register_class(ViewCenterOrigin)
-    bpy.utils.register_class(ToolsPanel)
-    bpy.utils.register_class(GPAddNewLayer)
-    # bpy.utils.register_class(GPAddVerticesToGroup)
-    bpy.utils.register_class(CreateRig)
-    bpy.utils.register_class(GPDoneDrawing)
-    bpy.utils.register_class(FinishMouthShape)
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    
 
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
+    bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
+    bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
 
 
 def unregister():
-    bpy.utils.unregister_class(ViewCenterOrigin)
-    bpy.utils.unregister_class(ToolsPanel)
-    bpy.utils.unregister_class(GPAddNewLayer)
-    # bpy.utils.unregister_class(GPAddVerticesToGroup)
-    bpy.utils.unregister_class(CreateRig)
-    bpy.utils.unregister_class(GPDoneDrawing)
-    bpy.utils.unregister_class(FinishMouthShape)
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
 
     del bpy.types.Scene.finish_mouth_count
+    del bpy.types.Scene.face_layers
+    del bpy.types.Scene.grease_pencil_face_rig_settings
 
 
 if __name__ == "__main__":
     register()
+
+
+
+
+
+
+
+
+
+
+# Retired Methods
+# class GPAddVerticesToGroup(bpy.types.Operator):
+#     """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
+#     bl_idname = "gpencil.add_vertices_to_group"
+#     bl_label = "Add Vertices to Group"
+#     bl_options = {'REGISTER', 'UNDO'}
+#
+#     def execute(self, context):
+#         gp_obj = context.active_object
+#         if gp_obj and gp_obj.type == 'GPENCIL':
+#             # Create or get the vertex group
+#             vgroup_name = "GP Vertices"
+#             if vgroup_name not in gp_obj.vertex_groups:
+#                 gp_obj.vertex_groups.new(name=vgroup_name)
+#
+#             # Enter edit mode
+#             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+#
+#             # Select all strokes
+#             bpy.ops.gpencil.select_all(action='SELECT')
+#
+#             # Assign selected vertices to the vertex group
+#             for area in bpy.context.screen.areas:
+#                 if area.type == 'VIEW_3D':
+#                     for region in area.regions:
+#                         if region.type == 'WINDOW':
+#                             override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
+#                             bpy.ops.gpencil.vertex_group_assign(override)
+#                             break
+#
+#             # Return to paint mode
+#             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+#
+#             self.report({'INFO'}, "Vertices added to vertex group.")
+#             return {'FINISHED'}
+#         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+#         return {'CANCELLED'}
