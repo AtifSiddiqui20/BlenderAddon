@@ -10,7 +10,8 @@ bl_info = {
 
 import bpy
 import bmesh
-
+import os
+import math
 
 # Operator to center view on the world origin
 class ViewCenterOrigin(bpy.types.Operator):
@@ -61,6 +62,9 @@ class ViewCenterOrigin(bpy.types.Operator):
         context.view_layer.objects.active = gp_obj
         gp_obj.select_set(True)
         bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+        new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
+        new_layer.info = "New GP Layer"  # Optional: set a name for the layer
+        new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
 
         # Material setup
         if "Default Material" in bpy.data.materials.keys():
@@ -101,6 +105,7 @@ class ViewCenterOrigin(bpy.types.Operator):
         # Get the object by name and check if it is not None
         if bpy.context.view_layer.objects.get(obj.name) is not None:
             obj.hide_select = True
+            obj.hide_render = True
 
     def create_default_gp_material(self, gp_obj):
         # Create a new material
@@ -117,6 +122,7 @@ class GPAddNewLayer(bpy.types.Operator):
     bl_idname = "gpencil.add_new_layer"
     bl_label = "New Layer"
     bl_options = {'REGISTER', 'UNDO'}
+
 
     def execute(self, context):
         gp_obj = context.active_object
@@ -202,7 +208,7 @@ class GPDoneDrawing(bpy.types.Operator):
 
             # Create Another Plane and resize it to the size of the mouths
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
-            plane = context.active_object
+            
             plane.name = "Mouths Control Board Plane"
             if plsize != 0:
                 plane.scale = (1.8, plsize / 2, plsize / 2)
@@ -250,7 +256,8 @@ class GPDoneDrawing(bpy.types.Operator):
 
             # Make the plane unselectable and change its display type to wire
             plane.display_type = 'WIRE'
-            plane.hide_select = True
+            # plane.hide_select = True
+            plane.hide_render = True
 
             # Add the plane to the "Mouth Rig Control Board Objects" collection
             collection.objects.link(plane)
@@ -259,6 +266,45 @@ class GPDoneDrawing(bpy.types.Operator):
             # Hide everything in the collection from render view
             for obj in collection.objects:
                 obj.hide_render = True
+                # Parent everything in the collection to the plane
+                if obj != plane:  
+                    obj.parent = plane
+                
+            # Create a puck (mesh circle) and place it on top of the first duplicated object
+            first_dup_obj = collection.objects[0] if collection.objects else None
+            if first_dup_obj:
+                bpy.ops.mesh.primitive_circle_add(fill_type = 'NGON', vertices=16, radius=0.1, location=(first_dup_obj.location.x, first_dup_obj.location.y, first_dup_obj.location.z), rotation = (1.5708, 0, 0))
+                puck = context.active_object
+                puck.name = "Mouth Shape Control Selector"
+                puck.hide_render = True
+                collection.objects.link(puck)
+                context.collection.objects.unlink(puck)
+                
+             # Add shrinkwrap constraint to the puck
+                shrinkwrap = puck.constraints.new(type='SHRINKWRAP')
+                shrinkwrap.target = plane
+                shrinkwrap.wrap_mode = 'ON_SURFACE'
+                puck.parent = plane
+
+                
+            # Add drivers to control layer visibility
+            for dup_index, dup_obj in enumerate(collection.objects):
+                if dup_obj.type == 'GPENCIL' and dup_obj != plane and dup_obj != puck:
+                    for layer in gp_obj.data.layers:
+                        if layer.info.startswith(dup_obj.name):
+                            driver = layer.driver_add("hide").driver
+                            driver.type = 'SCRIPTED'
+                            # set the type first (default is 'SINGLE_PROP')
+                            var = driver.variables.new()
+                            var.type = 'LOC_DIFF'
+                            var.name = 'distance'
+                            var.targets[0].id = puck
+                            var.targets[0].data_path = 'location'
+                            var.targets[1].id = dup_obj
+                            var.targets[1].data_path = 'location'
+                            driver.expression = "distance > 0.1"
+
+               
 
             # Return to Gpencil object
             bpy.ops.object.select_all(action='DESELECT')
@@ -447,6 +493,10 @@ class FinishMouthShape(bpy.types.Operator):
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
+
+
+
+
 
 
 # Panel to hold the buttons
