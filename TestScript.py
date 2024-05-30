@@ -13,6 +13,7 @@ import bmesh
 import os
 import math
 
+
 # Operator to center view on the world origin
 class ViewCenterOrigin(bpy.types.Operator):
     "Center the view on the world origin, add a plane, create a Grease Pencil object with a correctly configured material, and enter draw mode"""
@@ -123,7 +124,6 @@ class GPAddNewLayer(bpy.types.Operator):
     bl_label = "New Layer"
     bl_options = {'REGISTER', 'UNDO'}
 
-
     def execute(self, context):
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
@@ -196,7 +196,6 @@ class GPDoneDrawing(bpy.types.Operator):
                 obj.location.z = z
                 obj.hide_viewport = False
 
-
                 # Update the x position for the next object
                 x += spacing_x
 
@@ -204,11 +203,11 @@ class GPDoneDrawing(bpy.types.Operator):
                 if (index + 1) % items_per_row == 0:
                     x = 2.0  # Reset x position for the new row
                     z -= spacing_z  # Move to the next row
-                    plsize += 1     # Increment the plane's z scaling
+                    plsize += 1  # Increment the plane's z scaling
 
             # Create Another Plane and resize it to the size of the mouths
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
-            
+            plane = context.active_object
             plane.name = "Mouths Control Board Plane"
             if plsize != 0:
                 plane.scale = (1.8, plsize / 2, plsize / 2)
@@ -267,26 +266,26 @@ class GPDoneDrawing(bpy.types.Operator):
             for obj in collection.objects:
                 obj.hide_render = True
                 # Parent everything in the collection to the plane
-                if obj != plane:  
+                if obj != plane:
                     obj.parent = plane
-                
+
             # Create a puck (mesh circle) and place it on top of the first duplicated object
             first_dup_obj = collection.objects[0] if collection.objects else None
             if first_dup_obj:
-                bpy.ops.mesh.primitive_circle_add(fill_type = 'NGON', vertices=16, radius=0.1, location=(first_dup_obj.location.x, first_dup_obj.location.y, first_dup_obj.location.z), rotation = (1.5708, 0, 0))
+                bpy.ops.mesh.primitive_circle_add(fill_type='NGON', vertices=16, radius=0.1, location=(
+                first_dup_obj.location.x, first_dup_obj.location.y, first_dup_obj.location.z), rotation=(1.5708, 0, 0))
                 puck = context.active_object
                 puck.name = "Mouth Shape Control Selector"
                 puck.hide_render = True
                 collection.objects.link(puck)
                 context.collection.objects.unlink(puck)
-                
-             # Add shrinkwrap constraint to the puck
+
+                # Add shrinkwrap constraint to the puck
                 shrinkwrap = puck.constraints.new(type='SHRINKWRAP')
                 shrinkwrap.target = plane
                 shrinkwrap.wrap_mode = 'ON_SURFACE'
                 puck.parent = plane
 
-                
             # Add drivers to control layer visibility
             for dup_index, dup_obj in enumerate(collection.objects):
                 if dup_obj.type == 'GPENCIL' and dup_obj != plane and dup_obj != puck:
@@ -303,8 +302,6 @@ class GPDoneDrawing(bpy.types.Operator):
                             var.targets[1].id = dup_obj
                             var.targets[1].data_path = 'location'
                             driver.expression = "distance > 0.1"
-
-               
 
             # Return to Gpencil object
             bpy.ops.object.select_all(action='DESELECT')
@@ -324,8 +321,6 @@ class CreateRig(bpy.types.Operator):
     bl_idname = "object.create_rig"
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
-    
-    
 
     def execute(self, context):
         # Get the active object
@@ -388,34 +383,34 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         maxlen=25,
     )
 
+
 class FinishMouthShape(bpy.types.Operator):
     """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
     bl_idname = "gpencil.finish_mouth_shape"
     bl_label = "Finish Mouth Shape"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
     def is_layer_empty(self, layer):
         """Check if a Grease Pencil layer is empty"""
         for frame in layer.frames:
             if frame.strokes:
                 return False
         return True
-    
+
     def execute(self, context):
         # Get the name for the mouth shape from the property group
         mouth_name = bpy.context.scene.grease_pencil_face_rig_settings.mouth_shape_name
-       # print(mouth_name)
+        # print(mouth_name)
 
         # Check if the mouth shape name is provided
         if not mouth_name:
             self.report({'WARNING'}, "You should enter a name for the mouth shape")
             return {'CANCELLED'}
-        
-        
+
         # Get the active object
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
-            
+
             # Check if all visible layers are empty
             all_empty = True
             for layer in gp_obj.data.layers:
@@ -485,18 +480,14 @@ class FinishMouthShape(bpy.types.Operator):
 
             # Enter draw mode on the original GP object
             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
-            
-             # Clear the mouth_shape_name property
+
+            # Clear the mouth_shape_name property
             context.scene.grease_pencil_face_rig_settings.mouth_shape_name = ""
 
             self.report({'INFO'}, "Mouth shape finished. Ready for new drawing.")
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
-
-
-
-
 
 
 # Panel to hold the buttons
@@ -523,7 +514,7 @@ class ToolsPanel(bpy.types.Panel):
             row = layout.row()
             row.prop(name, "mouth_shape_name")
             layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
-            
+
             layout.operator(GPDoneDrawing.bl_idname, text="Done")
         if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
             layout.operator(CreateRig.bl_idname, text="Create Rig")
@@ -542,10 +533,10 @@ classes = (
     GPDoneDrawing
 )
 
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    
 
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
     bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
@@ -563,15 +554,6 @@ def unregister():
 
 if __name__ == "__main__":
     register()
-
-
-
-
-
-
-
-
-
 
 # Retired Methods
 # class GPAddVerticesToGroup(bpy.types.Operator):
