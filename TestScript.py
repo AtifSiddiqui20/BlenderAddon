@@ -4,7 +4,7 @@ bl_info = {
     "version": (0, 0, 1),
     "blender": (3, 6, 0),
     "category": "Grease Pencil",
-    "location": "View 3D > Tool Shelf > My Tools",
+    "location": "View 3D > Tool Shelf > GP Face tool",
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
@@ -578,7 +578,7 @@ class ToolsPanel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_tools"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'My Tools'
+    bl_category = 'GP Face tools'
 
     def draw(self, context):
         name = context.scene.grease_pencil_face_rig_settings
