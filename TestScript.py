@@ -257,18 +257,12 @@ class GPDoneDrawing(bpy.types.Operator):
             plane.display_type = 'WIRE'
             # plane.hide_select = True
             plane.hide_render = True
+            plane.transform_apply(Location = False, Scale = True, Rotation = False)
 
             # Add the plane to the "Mouth Rig Control Board Objects" collection
             collection.objects.link(plane)
             context.collection.objects.unlink(plane)
-
-            # Hide everything in the collection from render view
-            for obj in collection.objects:
-                obj.hide_render = True
-                # Parent everything in the collection to the plane
-                if obj != plane:
-                    obj.parent = plane
-
+            
             # Create a puck (mesh circle) and place it on top of the first duplicated object
             first_dup_obj = collection.objects[0] if collection.objects else None
             if first_dup_obj:
@@ -276,6 +270,7 @@ class GPDoneDrawing(bpy.types.Operator):
                 first_dup_obj.location.x, first_dup_obj.location.y, first_dup_obj.location.z), rotation=(1.5708, 0, 0))
                 puck = context.active_object
                 puck.name = "Mouth Shape Control Selector"
+                puck.transform_apply(Location = False, Scale = True, Rotation = False)
                 puck.hide_render = True
                 collection.objects.link(puck)
                 context.collection.objects.unlink(puck)
@@ -284,7 +279,19 @@ class GPDoneDrawing(bpy.types.Operator):
                 shrinkwrap = puck.constraints.new(type='SHRINKWRAP')
                 shrinkwrap.target = plane
                 shrinkwrap.wrap_mode = 'ON_SURFACE'
-                puck.parent = plane
+                
+
+            # Hide everything in the collection from render view
+            for obj in collection.objects:
+                obj.hide_render = True
+                # Parent everything in the collection to the plane
+                if obj != plane and obj != puck: # not working - puck is doubly affected # Avoid parenting the plane and puck
+                    obj.select_set(True)
+                    plane.select_set(True)
+                    context.view_layer.objects.active = plane
+                    bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+                    obj.select_set(False)
+
 
             # Add drivers to control layer visibility
             for dup_index, dup_obj in enumerate(collection.objects):
@@ -340,11 +347,12 @@ class CreateRig(bpy.types.Operator):
             # Access the armature's edit bones
             bones = armature.data.edit_bones
 
-            # Create the root bone, it's size is based on the GP object
+            # Create the root bone, it's slightly offset
+            # from the mouth to be in the center of the head it'll join with
             root_bone = bones[0]
-            root_bone.name = "root"
-            root_bone.head = (0, 0, 0)
-            root_bone.tail = (0, 0, 0.5)
+            root_bone.name = "GP Face Rig Root"
+            root_bone.head = (0, 1, 0)
+            root_bone.tail = (0, 1, 0.5)
 
             # Create the named bone
             named_bone = bones.new(vgroup_name)
@@ -352,15 +360,88 @@ class CreateRig(bpy.types.Operator):
             named_bone.tail = (0, 0, 1)
             named_bone.parent = root_bone
             named_bone.use_connect = False
+            
+            # Retrieve control board and puck locations
+            collection_name = "Mouth Rig Control Board Objects"
+            collection = bpy.data.collections.get(collection_name)
+
+            if collection is None:
+                self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
+                return {'CANCELLED'}
+
+            control_board = None
+            puck = None
+            for obj in collection.objects:
+                if obj.name == "Mouths Control Board Plane":
+                    control_board = obj
+                elif obj.name == "Mouth Shape Control Selector":
+                    puck = obj
+
+            if not control_board or not puck:
+                self.report({'ERROR'}, "Control board or Selector not found in the collection.")
+                return {'CANCELLED'}
+            
+            # Create the control board bone
+            control_board_bone = bones.new("control_board")
+            control_board_bone.head = control_board.location
+            control_board_bone.tail = (control_board.location.x, control_board.location.y, control_board.location.z + control_board.scale.z)
+            control_board_bone.parent = root_bone
+            control_board_bone.use_connect = False
+            control_board_bone.use_deform = False
+            control_board_bone.show_wire = True
+            
+            # Create the puck control bone
+            puck_control_bone = bones.new("puck_control")
+            puck_control_bone.head = puck.location
+            puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
+            puck_control_bone.parent = control_board_bone
+            puck_control_bone.use_connect = False
+            
+            
+            # Switch to pose mode to set custom shapes
+            bpy.ops.object.mode_set(mode='POSE')
+            # Access the pose bones
+            pose_bones = armature.pose.bones
+            # Set custom shapes (ensure you have created custom bone shapes named 'ControlBoardShape' and 'PuckShape')
+            if 'Mouths Control Board Plane' in bpy.data.objects:
+                control_board_bone_obj = pose_bones["control_board"]
+                control_board_bone_obj.custom_shape = bpy.data.objects['Mouths Control Board Plane']
+                
+                control_board_bone_obj.use_custom_shape_bone_size = False
+
+            if 'Mouth Shape Control Selector' in bpy.data.objects:
+                puck_control_bone_obj = pose_bones["puck_control"]
+                puck_control_bone_obj.custom_shape = bpy.data.objects['Mouth Shape Control Selector']
+                puck_control_bone_obj.use_custom_shape_bone_size = False
+            
+            # Add shrinkwrap constraint to the puck bone
+            shrinkwrap = puck_control_bone_obj.constraints.new('SHRINKWRAP')
+            shrinkwrap.target = control_board
+            shrinkwrap.wrap_mode = 'ON_SURFACE'
+            # shrinkwrap.use_keep_above_surface = True
 
             # Switch back to object mode
             bpy.ops.object.mode_set(mode='OBJECT')
 
-            # Parent the GP object to the armature with automatic weights
+            # Parent the GP object to the armature with weights previously defined
             gp_obj.select_set(True)
             armature.select_set(True)
             context.view_layer.objects.active = armature
             bpy.ops.object.parent_set(type='ARMATURE')
+            
+             # Ensure the control board and puck bones follow the objects
+            control_board_bone_obj = armature.pose.bones["control_board"]
+            puck_control_bone_obj = armature.pose.bones["puck_control"]
+            
+            childof_puck = puck.constraints.new('CHILD_OF')
+            childof_puck.target = armature
+            childof_puck.subtarget = "puck_control"
+            childof_control_board = control_board.constraints.new('CHILD_OF')
+            childof_control_board.target = armature
+            childof_control_board.subtarget = "control_board"
+            
+            
+
 
             # Add the armature to the same collection as the Grease Pencil object
             collection = gp_obj.users_collection[0]
@@ -521,7 +602,6 @@ class ToolsPanel(bpy.types.Panel):
 
 
 # Registration
-
 
 classes = (
     GreasePencilFaceRigSettings,
