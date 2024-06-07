@@ -8,6 +8,14 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
+#Current Issues: Double transforms on puck due to constraint on bone
+#similar names starting with same
+#word trigger erroneous driver creation
+
+#missing features: Adding lablels to controla board rig (bones that take the shape
+#of text. Missing eye and nose creation. Missing lattice creation and bone parenting
+#appending to rigs
+
 import bpy
 import bmesh
 import os
@@ -209,6 +217,7 @@ class GPDoneDrawing(bpy.types.Operator):
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
             plane = context.active_object
             plane.name = "Mouths Control Board Plane"
+            # plane.transform_apply(location = False, scale = True, rotation = False)
             if plsize != 0:
                 plane.scale = (1.8, plsize / 2, plsize / 2)
             else:
@@ -257,7 +266,12 @@ class GPDoneDrawing(bpy.types.Operator):
             plane.display_type = 'WIRE'
             # plane.hide_select = True
             plane.hide_render = True
-            plane.transform_apply(Location = False, Scale = True, Rotation = False)
+            
+             # Apply the scale transformation
+            bpy.ops.object.mode_set(mode='OBJECT')  # Ensure we are in object mode
+            bpy.context.view_layer.objects.active = plane
+            bpy.ops.object.transform_apply(location=False, scale=True, rotation=False)
+           
 
             # Add the plane to the "Mouth Rig Control Board Objects" collection
             collection.objects.link(plane)
@@ -270,7 +284,10 @@ class GPDoneDrawing(bpy.types.Operator):
                 first_dup_obj.location.x, first_dup_obj.location.y, first_dup_obj.location.z), rotation=(1.5708, 0, 0))
                 puck = context.active_object
                 puck.name = "Mouth Shape Control Selector"
-                puck.transform_apply(Location = False, Scale = True, Rotation = False)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.context.view_layer.objects.active = puck
+                bpy.ops.object.transform_apply(location=False, scale=True, rotation=False)
+                # puck.transform_apply(location = False, Scale = True, Rotation = False)
                 puck.hide_render = True
                 collection.objects.link(puck)
                 context.collection.objects.unlink(puck)
@@ -285,19 +302,28 @@ class GPDoneDrawing(bpy.types.Operator):
             for obj in collection.objects:
                 obj.hide_render = True
                 # Parent everything in the collection to the plane
-                if obj != plane and obj != puck: # not working - puck is doubly affected # Avoid parenting the plane and puck
+                if obj != plane:  
                     obj.select_set(True)
                     plane.select_set(True)
                     context.view_layer.objects.active = plane
                     bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
                     obj.select_set(False)
+            
+            #unparent the puck
+            puck = bpy.data.objects["Mouth Shape Control Selector"]
+            puck.select_set(True)
+            context.view_layer.objects.active = puck
+            bpy.ops.object.parent_clear(type = 'CLEAR_KEEP_TRANSFORM')
+            puck.select_set(False)
+            
+                   
 
 
             # Add drivers to control layer visibility
             for dup_index, dup_obj in enumerate(collection.objects):
                 if dup_obj.type == 'GPENCIL' and dup_obj != plane and dup_obj != puck:
                     for layer in gp_obj.data.layers:
-                        if layer.info.startswith(dup_obj.name):
+                        if layer.info.startswith(dup_obj.name): # leads to issue where same name start causes double drivers to be added
                             driver = layer.driver_add("hide").driver
                             driver.type = 'SCRIPTED'
                             # set the type first (default is 'SINGLE_PROP')
@@ -376,6 +402,7 @@ class CreateRig(bpy.types.Operator):
                     control_board = obj
                 elif obj.name == "Mouth Shape Control Selector":
                     puck = obj
+                    puck.hide_viewport =True
 
             if not control_board or not puck:
                 self.report({'ERROR'}, "Control board or Selector not found in the collection.")
@@ -429,6 +456,26 @@ class CreateRig(bpy.types.Operator):
             context.view_layer.objects.active = armature
             bpy.ops.object.parent_set(type='ARMATURE')
             
+            
+#            # Set up drivers for layer visibility - using bones instead of the planes, not working right now
+#            for layer in gp_obj.data.layers:
+#                if layer.info.startswith("Mouth Shape"):
+#                    layer_index = int(layer.info.split(" ")[-1])
+#                    target_obj = collection.objects.get(f"Mouth Shape {layer_index}")
+#                    if target_obj:
+#                        driver = layer.driver_add("hide").driver
+#                        driver.type = 'SCRIPTED'
+#                        var = driver.variables.new()
+#                        var.name = "distance"
+#                        var.targets[0].id = armature
+#                        var.targets[0].bone_target = "puck_control"
+#                        var.targets[0].transform_type = 'DISTANCE'
+#                        var.targets[0].transform_space = 'LOCAL_SPACE'
+#                        var.targets[1].id = target_obj
+#                        var.targets[1].transform_type = 'LOC_X'
+#                        var.targets[1].transform_space = 'LOCAL_SPACE'
+#                        driver.expression = "distance < 0.1"
+            
              # Ensure the control board and puck bones follow the objects
             control_board_bone_obj = armature.pose.bones["control_board"]
             puck_control_bone_obj = armature.pose.bones["puck_control"]
@@ -439,6 +486,8 @@ class CreateRig(bpy.types.Operator):
             childof_control_board = control_board.constraints.new('CHILD_OF')
             childof_control_board.target = armature
             childof_control_board.subtarget = "control_board"
+            
+            
             
             
 
