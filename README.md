@@ -5,8 +5,7 @@ This is a Blender Addon that aims to allow seamless creation of 2D face rigs, co
 
 
 
-> [!NOTE]
-> This addon is in the beginning stages of development, with only limited functionality currently implemented.
+
 
 
 ## Demo of Intended Funcitonality
