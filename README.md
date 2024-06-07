@@ -10,6 +10,7 @@ This is a Blender Addon that aims to allow seamless creation of 2D face rigs, co
 
 
 ## Demo of Intended Funcitonality
+![Demo showcasing possible manipulations once face rig has been constructued](https://github.com/AtifSiddiqui20/BlenderAddon/blob/63114a9fd9f8b6935f814a485bd1b430470d86fb/ReadmeFiles/gifs/Demo%201%20gif.gif))
 
 
 ![Demo image showcasing final product](ReadmeFiles/images/FaceRigExample1.PNG)
