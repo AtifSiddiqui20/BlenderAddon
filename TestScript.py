@@ -8,13 +8,16 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
-#Current Issues: Double transforms on puck due to constraint on bone
+#Current Issues: Double transforms on puck due to constraint on bone X
 #similar names starting with same
 #word trigger erroneous driver creation
 
 #missing features: Adding lablels to controla board rig (bones that take the shape
 #of text. Missing eye and nose creation. Missing lattice creation and bone parenting
-#appending to rigs
+#appending to rigs, making the interface use drivers for x and y movement, allowing it to 
+# snap to shapes rather than freely move about (only for mouth and eye shapes)
+# Eyebrow Sliders/controls 
+# Lattice creation with bone hooks for every part
 
 import bpy
 import bmesh
@@ -292,10 +295,10 @@ class GPDoneDrawing(bpy.types.Operator):
                 collection.objects.link(puck)
                 context.collection.objects.unlink(puck)
 
-                # Add shrinkwrap constraint to the puck
-                shrinkwrap = puck.constraints.new(type='SHRINKWRAP')
-                shrinkwrap.target = plane
-                shrinkwrap.wrap_mode = 'ON_SURFACE'
+                # Add shrinkwrap constraint to the puck - Not necessary
+                # shrinkwrap = puck.constraints.new(type='SHRINKWRAP')
+                # shrinkwrap.target = plane
+                # shrinkwrap.wrap_mode = 'ON_SURFACE'
                 
 
             # Hide everything in the collection from render view
