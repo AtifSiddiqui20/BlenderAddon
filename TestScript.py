@@ -11,8 +11,7 @@ bl_info = {
 #Current Issues: Double transforms on puck due to constraint on bone X
 #similar names starting with same
 #word trigger erroneous driver creation
-#Text gets doubly transformed and messes up - now messing up box
-#with control board objects' placements
+#TEXT IS MISALIGNED AND IN ALL CAPS?
 # recoriding should be set on, then turned off once finished?
 
 #missing features: Adding lablels to controla board rig (bones that take the shape
@@ -204,20 +203,23 @@ class GPDoneDrawing(bpy.types.Operator):
             plsize = 0  # initialize the plane size
 
             # Iterate through the objects in the collection
-            for index, obj in enumerate(collection.objects):
-                # Set the object's location
-                obj.location.x = x
-                obj.location.z = z
+            gp_object_count = 0  # Counter for Grease Pencil objects
+            for obj in collection.objects:
                 obj.hide_viewport = False
+                # Set the object's location if they are GP objects
+                if obj.type == 'GPENCIL':
+                    obj.location.x = x
+                    obj.location.z = z
+                    gp_object_count += 1
+                    
+                    # Update the x position for the next object
+                    x += spacing_x
 
-                # Update the x position for the next object
-                x += spacing_x
-
-                # Check if we need to move to the next row
-                if (index + 1) % items_per_row == 0:
-                    x = 2.0  # Reset x position for the new row
-                    z -= spacing_z  # Move to the next row
-                    plsize += 1  # Increment the plane's z scaling
+                    # Check if we need to move to the next row
+                    if (gp_object_count % items_per_row == 0):
+                        x = 2.0  # Reset x position for the new row
+                        z -= spacing_z  # Move to the next row
+                        plsize += 1  # Increment the plane's z scaling
 
             # Create Another Plane and resize it to the size of the mouths
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
@@ -369,7 +371,7 @@ class CreateRig(bpy.types.Operator):
     def execute(self, context):
         
         # Ensure there are no name conflicts
-        self.remove_object_by_name("Mouth Shape Control Selector")
+        self.remove_object_by_name("Mouth Shape Control Selector.001")
         
         # Get the active object
         gp_obj = context.active_object
@@ -503,10 +505,6 @@ class CreateRig(bpy.types.Operator):
             childof_control_board.target = armature
             childof_control_board.subtarget = "control_board"
             
-            
-            
-            
-
 
             # Add the armature to the same collection as the Grease Pencil object
             collection = gp_obj.users_collection[0]
@@ -614,6 +612,9 @@ class FinishMouthShape(bpy.types.Operator):
             text_obj.scale = (0.1, 0.1, 0.1)
             text_obj.rotation_euler = (1.5708, 0, 0) 
             text_obj.name = mouth_name + "Text" 
+            # Set text alignment to center
+            text_obj.data.align_x = 'CENTER'
+            text_obj.data.align_y = 'CENTER'
             
             # Link the text object & Duplicate to the new collection
             new_collection.objects.link(gp_duplicate)
