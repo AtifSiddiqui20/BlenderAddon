@@ -11,8 +11,7 @@ bl_info = {
 #Current Issues: Double transforms on puck due to constraint on bone X
 #similar names starting with same
 #word trigger erroneous driver creation
-#TEXT IS MISALIGNED AND IN ALL CAPS?
-# recoriding should be set on, then turned off once finished?
+#recoriding should be set on, then turned off once finished?
 
 #missing features: Adding lablels to controla board rig (bones that take the shape
 #of text. Missing eye and nose creation. Missing lattice creation and bone parenting
@@ -20,6 +19,7 @@ bl_info = {
 # snap to shapes rather than freely move about (only for mouth and eye shapes)
 # Eyebrow Sliders/controls 
 # Lattice creation with bone hooks for every part
+# Add Delete Rig button for my collection
 
 import bpy
 import bmesh
@@ -156,8 +156,17 @@ class GPDoneDrawing(bpy.types.Operator):
     bl_idname = "gpencil.done_drawing"
     bl_label = "Done"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    def remove_object_by_name(self, name):
+        if name in bpy.data.objects:
+            bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+        
 
     def execute(self, context):
+        
+         
+        # Ensure there are no name conflicts
+        self.remove_object_by_name("Mouth Shape Control Selector")
         context.active_object.select_set(True)
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
@@ -199,7 +208,7 @@ class GPDoneDrawing(bpy.types.Operator):
 
             # Initialize the position variables
             x = 2.0
-            z = 2.0
+            z = 2.25
             plsize = 0  # initialize the plane size
 
             # Iterate through the objects in the collection
@@ -268,7 +277,8 @@ class GPDoneDrawing(bpy.types.Operator):
             bpy.context.scene.cursor.location = (0, 0, 0)  # Reset the cursor location
 
             plane.location.x = 1.8
-            plane.location.z = 2.2
+            plane.location.z = 2.4
+            
 
             # Make the plane unselectable and change its display type to wire
             plane.display_type = 'WIRE'
@@ -364,14 +374,8 @@ class CreateRig(bpy.types.Operator):
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def remove_object_by_name(self, name):
-        if name in bpy.data.objects:
-            bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
 
     def execute(self, context):
-        
-        # Ensure there are no name conflicts
-        self.remove_object_by_name("Mouth Shape Control Selector.001")
         
         # Get the active object
         gp_obj = context.active_object
