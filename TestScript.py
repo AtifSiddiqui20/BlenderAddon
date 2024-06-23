@@ -11,6 +11,9 @@ bl_info = {
 #Current Issues: Double transforms on puck due to constraint on bone X
 #similar names starting with same
 #word trigger erroneous driver creation
+#Text gets doubly transformed and messes up - now messing up box
+#with control board objects' placements
+# recoriding should be set on, then turned off once finished?
 
 #missing features: Adding lablels to controla board rig (bones that take the shape
 #of text. Missing eye and nose creation. Missing lattice creation and bone parenting
@@ -291,7 +294,7 @@ class GPDoneDrawing(bpy.types.Operator):
                 bpy.context.view_layer.objects.active = puck
                 bpy.ops.object.transform_apply(location=False, scale=True, rotation=False)
                 # puck.transform_apply(location = False, Scale = True, Rotation = False)
-                puck.hide_render = True
+                # puck.hide_render = True
                 collection.objects.link(puck)
                 context.collection.objects.unlink(puck)
 
@@ -304,13 +307,14 @@ class GPDoneDrawing(bpy.types.Operator):
             # Hide everything in the collection from render view
             for obj in collection.objects:
                 obj.hide_render = True
-                # Parent everything in the collection to the plane
-                if obj != plane:  
-                    obj.select_set(True)
-                    plane.select_set(True)
-                    context.view_layer.objects.active = plane
-                    bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-                    obj.select_set(False)
+                # Parent only GP objects in the collection to the plane 
+                if obj != plane: 
+                    if obj.type == 'GPENCIL': 
+                        obj.select_set(True)
+                        plane.select_set(True)
+                        context.view_layer.objects.active = plane
+                        bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+                        obj.select_set(False)
             
             #unparent the puck
             puck = bpy.data.objects["Mouth Shape Control Selector"]
@@ -358,7 +362,15 @@ class CreateRig(bpy.types.Operator):
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
 
+    def remove_object_by_name(self, name):
+        if name in bpy.data.objects:
+            bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
+
     def execute(self, context):
+        
+        # Ensure there are no name conflicts
+        self.remove_object_by_name("Mouth Shape Control Selector")
+        
         # Get the active object
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
@@ -403,6 +415,7 @@ class CreateRig(bpy.types.Operator):
             for obj in collection.objects:
                 if obj.name == "Mouths Control Board Plane":
                     control_board = obj
+                    obj.hide_viewport = True
                 elif obj.name == "Mouth Shape Control Selector":
                     puck = obj
                     puck.hide_viewport =True
@@ -563,16 +576,16 @@ class FinishMouthShape(bpy.types.Operator):
             gp_obj.select_set(True)
             bpy.ops.object.duplicate()
             gp_duplicate = context.active_object
-            gp_duplicate.hide_viewport = True
             # Set gp_duplicate name to the provided mouth shape name
             gp_duplicate.name = mouth_name
 
             # Scale the duplicate
             gp_duplicate.scale *= 0.2
-
+           
             # Create or get the "Mouth Rig Control Board Objects" collection within "Temp Drawing Collection"
             parent_collection_name = "Temp Drawing Collection"
             new_collection_name = "Mouth Rig Control Board Objects"
+            
 
             parent_collection = bpy.data.collections.get(parent_collection_name)
             if not parent_collection:
@@ -588,13 +601,38 @@ class FinishMouthShape(bpy.types.Operator):
                     parent_collection.children.link(new_collection)
 
             # Link the duplicated object to the new collection
-            new_collection.objects.link(gp_duplicate)
-            parent_collection.objects.unlink(gp_duplicate)
+            #new_collection.objects.link(gp_duplicate)
+            #parent_collection.objects.unlink(gp_duplicate)
             # context.collection.objects.unlink(gp_duplicate)
-            # Get the count of finished mouth shapes
-            count = context.scene.finish_mouth_count
+            
+            
+            
+            # Create a text object for the mouth shape name
+            bpy.ops.object.text_add(enter_editmode=False, location=(gp_duplicate.location.x, gp_duplicate.location.y, gp_duplicate.location.z - 0.2))
+            text_obj = context.active_object
+            text_obj.data.body = mouth_name
+            text_obj.scale = (0.1, 0.1, 0.1)
+            text_obj.rotation_euler = (1.5708, 0, 0) 
+            text_obj.name = mouth_name + "Text" 
+            
+            # Link the text object & Duplicate to the new collection
+            new_collection.objects.link(gp_duplicate)
+            new_collection.objects.link(text_obj)
+            parent_collection.objects.unlink(gp_duplicate)
+            bpy.context.scene.collection.objects.unlink(text_obj)
 
+            # Parent the text object to the duplicated GP object
+            text_obj.select_set(True)
+            gp_duplicate.select_set(True)
+            context.view_layer.objects.active = gp_duplicate
+            bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+            gp_duplicate.hide_viewport = True
+            text_obj.hide_viewport =True
+            
+            
+            # Get the count of finished mouth shapes
             # Increment the count
+            count = context.scene.finish_mouth_count
             context.scene.finish_mouth_count += 1
 
             # Return to the original Grease Pencil object
