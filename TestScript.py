@@ -8,12 +8,23 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
-#Current Issues: Double transforms on puck due to constraint on bone X
+#Current Issues: 
+# At very large/small scales, the drivers do not work??? Have to use bones for targets
+# or we can use empties
 #similar names starting with same
 #word trigger erroneous driver creation
 #recoriding should be set on, then turned off once finished?
 
-#missing features: Adding lablels to controla board rig (bones that take the shape
+#missing features: 
+# The created bones for each shape should be able to move 
+# the objects they correspond to, so every mouth shape should be moveable
+# via the hidden bones, that means they are shinkrwrapped to the plane
+# and the empties need to move too 
+# Scale thickness needs to be ON for all grease pencil objects
+# Use Lights Button
+
+
+# Adding lablels to controla board rig (bones that take the shape
 #of text. Missing eye and nose creation. Missing lattice creation and bone parenting
 #appending to rigs, making the interface use drivers for x and y movement, allowing it to 
 # snap to shapes rather than freely move about (only for mouth and eye shapes)
@@ -25,6 +36,21 @@ import bpy
 import bmesh
 import os
 import math
+from mathutils import Vector
+
+
+def get_bone_distance(armature, bone1_name, bone2_name):
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    armature_eval = armature.evaluated_get(depsgraph)
+    
+    bone1 = armature_eval.pose.bones[bone1_name]
+    bone2 = armature_eval.pose.bones[bone2_name]
+    
+    world_pos1 = armature.matrix_world @ bone1.matrix @ Vector((0, 0, 0))
+    world_pos2 = armature.matrix_world @ bone2.matrix @ Vector((0, 0, 0))
+    
+    distance = (world_pos1 - world_pos2).length
+    return distance
 
 
 # Operator to center view on the world origin
@@ -203,7 +229,7 @@ class GPDoneDrawing(bpy.types.Operator):
         if collection is not None:
             # Define the spacing between objects
             spacing_x = .5
-            spacing_z = .2
+            spacing_z = .5
             items_per_row = 4
 
             # Initialize the position variables
@@ -236,9 +262,12 @@ class GPDoneDrawing(bpy.types.Operator):
             plane.name = "Mouths Control Board Plane"
             # plane.transform_apply(location = False, scale = True, rotation = False)
             if plsize != 0:
-                plane.scale = (1.8, plsize / 2, plsize / 2)
+                if plsize != 1:
+                    plane.scale = (2, plsize *.5, plsize / 1.9)
+                else: 
+                    plane.scale = (2, plsize, plsize/1.9)
             else:
-                plane.scale = (1.8, .403, .403)
+                plane.scale = (2, .403, .403)
             # Change origin to the leftmost top vertex
             plane_mesh = plane.data
             bmesh_plane = bmesh.from_edit_mesh(plane_mesh)
@@ -338,22 +367,24 @@ class GPDoneDrawing(bpy.types.Operator):
                    
 
 
-            # Add drivers to control layer visibility
-            for dup_index, dup_obj in enumerate(collection.objects):
-                if dup_obj.type == 'GPENCIL' and dup_obj != plane and dup_obj != puck:
-                    for layer in gp_obj.data.layers:
-                        if layer.info.startswith(dup_obj.name): # leads to issue where same name start causes double drivers to be added
-                            driver = layer.driver_add("hide").driver
-                            driver.type = 'SCRIPTED'
-                            # set the type first (default is 'SINGLE_PROP')
-                            var = driver.variables.new()
-                            var.type = 'LOC_DIFF'
-                            var.name = 'distance'
-                            var.targets[0].id = puck
-                            var.targets[0].data_path = 'location'
-                            var.targets[1].id = dup_obj
-                            var.targets[1].data_path = 'location'
-                            driver.expression = "distance > 0.1"
+#            # Add drivers to control layer visibility
+#            for dup_index, dup_obj in enumerate(collection.objects):
+#                if dup_obj.type == 'GPENCIL' and dup_obj != plane and dup_obj != puck:
+#                    for layer in gp_obj.data.layers:
+#                        if layer.info.startswith(dup_obj.name): # leads to issue where same name start causes double drivers to be added
+#                            driver = layer.driver_add("hide").driver
+#                            driver.type = 'SCRIPTED'
+#                            # set the type first (default is 'SINGLE_PROP')
+#                            var = driver.variables.new()
+#                            var.type = 'LOC_DIFF'
+#                            var.name = 'distance'
+#                            var.targets[0].id = puck
+#                            var.targets[0].data_path = 'location'
+#                            var.targets[0].transform_space = 'TRANSFORM_SPACE'
+#                            var.targets[1].id = dup_obj
+#                            var.targets[1].data_path = 'location'
+#                            var.targets[1].transform_space = 'TRANSFORM_SPACE'
+#                            driver.expression = "distance > 0.1"
 
             # Return to Gpencil object
             bpy.ops.object.select_all(action='DESELECT')
@@ -384,70 +415,142 @@ class CreateRig(bpy.types.Operator):
             if vgroup_name not in gp_obj.vertex_groups:
                 self.report({'ERROR'}, f"Vertex group '{vgroup_name}' not found.")
                 return {'CANCELLED'}
-
-            # Create a new armature object
-            bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
-            armature = context.object
-            armature.name = "GP_Rig"
-            bpy.ops.object.mode_set(mode='EDIT')
-
-            # Access the armature's edit bones
-            bones = armature.data.edit_bones
-
-            # Create the root bone, it's slightly offset
-            # from the mouth to be in the center of the head it'll join with
-            root_bone = bones[0]
-            root_bone.name = "GP Face Rig Root"
-            root_bone.head = (0, 1, 0)
-            root_bone.tail = (0, 1, 0.5)
-
-            # Create the named bone
-            named_bone = bones.new(vgroup_name)
-            named_bone.head = (0, 0, 0.5)
-            named_bone.tail = (0, 0, 1)
-            named_bone.parent = root_bone
-            named_bone.use_connect = False
             
-            # Retrieve control board and puck locations
-            collection_name = "Mouth Rig Control Board Objects"
-            collection = bpy.data.collections.get(collection_name)
+        # Retrieve control board and puck locations
+        collection_name = "Mouth Rig Control Board Objects"
+        collection = bpy.data.collections.get(collection_name)
+            
+#        for obj in collection.objects:
+#            if obj.type == 'GPENCIL':
+#                bpy.ops.object.empty_add(type='PLAIN_AXES', location=mouth_shape_bone.head)
+#                empty = bpy.context.object
+#                empty.name = bone_name + " empty"
+#                # Parent the empty to the bone
+#                bpy.context.view_layer.objects.active = armature
+#                bpy.ops.object.mode_set(mode='POSE')
+#                bone_pose = armature.pose.bones[mouth_shape_bone.name]
+#                empty.parent = armature
+#                empty.parent_type = 'BONE'
+#                empty.parent_bone = bone_pose.name
+#                bpy.ops.object.mode_set(mode='OBJECT')
 
-            if collection is None:
-                self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
-                return {'CANCELLED'}
+        # Create a new armature object
+        bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
+        armature = context.object
+        armature.name = "GP_Rig"
+        bpy.ops.object.mode_set(mode='EDIT')
 
-            control_board = None
-            puck = None
-            for obj in collection.objects:
-                if obj.name == "Mouths Control Board Plane":
-                    control_board = obj
-                    obj.hide_viewport = True
-                elif obj.name == "Mouth Shape Control Selector":
-                    puck = obj
-                    puck.hide_viewport =True
+        # Access the armature's edit bones
+        bones = armature.data.edit_bones
 
-            if not control_board or not puck:
-                self.report({'ERROR'}, "Control board or Selector not found in the collection.")
-                return {'CANCELLED'}
+        # Create the root bone, it's slightly offset
+        # from the mouth to be in the center of the head it'll join with
+        root_bone = bones[0]
+        root_bone.name = "GP Face Rig Root"
+        root_bone.head = (0, 1, 0)
+        root_bone.tail = (0, 1, 0.5)
+
+        # Create the named bone
+        named_bone = bones.new(vgroup_name)
+        named_bone.head = (0, 0, 0.5)
+        named_bone.tail = (0, 0, 1)
+        named_bone.parent = root_bone
+        named_bone.use_connect = False
+        
+        # Retrieve control board and puck locations
+        collection_name = "Mouth Rig Control Board Objects"
+        collection = bpy.data.collections.get(collection_name)
+
+        if collection is None:
+            self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
+            return {'CANCELLED'}
+
+        control_board = None
+        puck = None
+        for obj in collection.objects:
+            if obj.name == "Mouths Control Board Plane":
+                control_board = obj
+                obj.hide_viewport = True
+            elif obj.name == "Mouth Shape Control Selector":
+                puck = obj
+                puck.hide_viewport =True
+
+        if not control_board or not puck:
+            self.report({'ERROR'}, "Control board or Selector not found in the collection.")
+            return {'CANCELLED'}
+        
+        # Create the control board bone
+        control_board_bone = bones.new("control_board")
+        control_board_bone.head = control_board.location
+        control_board_bone.tail = (control_board.location.x, control_board.location.y, control_board.location.z + control_board.scale.z)
+        control_board_bone.parent = root_bone
+        control_board_bone.use_connect = False
+        control_board_bone.use_deform = False
+        control_board_bone.show_wire = True
+        
+        # Create the puck control bone
+        puck_control_bone = bones.new("puck_control")
+        puck_control_bone.head = puck.location
+        puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
+        puck_control_bone.parent = control_board_bone
+        puck_control_bone.use_connect = False
+        
+        #Create Bones for each GP object in the other collection and set them to hide
+        bone_names = []
+        for obj in collection.objects:
+            if obj.type == 'GPENCIL' and obj != puck and obj != control_board:
+                bone_name = obj.name
+                print(f"Creating bone for: {bone_name}") 
+                mouth_shape_bone = bones.new(bone_name + " Shape Bone")
+                mouth_shape_bone.head = obj.location
+                mouth_shape_bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
+                mouth_shape_bone.parent = control_board_bone
+                mouth_shape_bone.use_connect = False
+                mouth_shape_bone.use_deform = False
+                mouth_shape_bone.hide = True
+                bone_names.append(mouth_shape_bone.name)
+                
+
+        for layer in gp_obj.data.layers:
+            for bone_name in bone_names:
+                if layer.info.startswith(bone_name.replace(" Shape Bone", "")):
+                    bone2 = layer.info 
+                    driver = layer.driver_add("hide").driver
+                    driver.type = 'SCRIPTED'
+                    
+                    var1 = driver.variables.new()
+                    var1.name = "bone1" #+ bone2
+                    var1.type = 'TRANSFORMS'
+                    var1.targets[0].id = armature
+                    var1.targets[0].bone_target = "puck_control"
+                    var1.targets[0].transform_type = 'LOC_X'
+                    var1.targets[0].transform_space = 'TRANSFORM_SPACE'
+                    
+                    var2 = driver.variables.new()
+                    var2.name = "bone2"
+                    var2.type = 'TRANSFORMS'
+                    var2.targets[0].id = armature
+                    var2.targets[0].bone_target = bone_name
+                    var2.targets[0].transform_type = 'LOC_X'
+                    var2.targets[0].transform_space = 'TRANSFORM_SPACE'
+                    
+                    driver.expression = "(abs(bone1 - bone2) >  0.1) "
+                    
             
-            # Create the control board bone
-            control_board_bone = bones.new("control_board")
-            control_board_bone.head = control_board.location
-            control_board_bone.tail = (control_board.location.x, control_board.location.y, control_board.location.z + control_board.scale.z)
-            control_board_bone.parent = root_bone
-            control_board_bone.use_connect = False
-            control_board_bone.use_deform = False
-            control_board_bone.show_wire = True
             
-            # Create the puck control bone
-            puck_control_bone = bones.new("puck_control")
-            puck_control_bone.head = puck.location
-            puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
-            puck_control_bone.parent = control_board_bone
-            puck_control_bone.use_connect = False
+#            for obj in collection.objects:
+#                if obj.type == 'GPENCIL':
+#                    bone_name = obj.name 
+#                    mouth_shape_bone = bones.new(bone_name + " Shape Bone")
+#                    mouth_shape_bone.head = obj.location
+#                    mouth_shape_bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
+#                    mouth_shape_bone.parent = control_board_bone
+#                    mouth_shape_bone.use_connect = False
+#                    mouth_shape_bone.use_deform = False
+#                    
             
             
-            # Switch to pose mode to set custom shapes
+            # Switch to pose mode to set custom shapes & visbility rules
             bpy.ops.object.mode_set(mode='POSE')
             # Access the pose bones
             pose_bones = armature.pose.bones
@@ -457,11 +560,14 @@ class CreateRig(bpy.types.Operator):
                 control_board_bone_obj.custom_shape = bpy.data.objects['Mouths Control Board Plane']
                 
                 control_board_bone_obj.use_custom_shape_bone_size = False
+                for child_bone in control_board_bone_obj.children:
+                    child_bone.bone.hide = True
 
             if 'Mouth Shape Control Selector' in bpy.data.objects:
                 puck_control_bone_obj = pose_bones["puck_control"]
                 puck_control_bone_obj.custom_shape = bpy.data.objects['Mouth Shape Control Selector']
                 puck_control_bone_obj.use_custom_shape_bone_size = False
+                puck_control_bone_obj.bone.hide = False
             
             # Add shrinkwrap constraint to the puck bone
             shrinkwrap = puck_control_bone_obj.constraints.new('SHRINKWRAP')
@@ -479,9 +585,31 @@ class CreateRig(bpy.types.Operator):
             bpy.ops.object.parent_set(type='ARMATURE')
             
             
-#            # Set up drivers for layer visibility - using bones instead of the planes, not working right now
+#             # Set up drivers for layer visibility using bones
 #            for layer in gp_obj.data.layers:
-#                if layer.info.startswith("Mouth Shape"):
+#                for bone_name in bone_names:
+#                    if layer.info.startswith(bone_name.replace(" Shape Bone", "")):
+#                        driver = layer.driver_add("hide").driver
+#                        driver.type = 'SCRIPTED'
+#                        var = driver.variables.new()
+#                        var.name = "distance"
+#                        var.type = 'LOC_DIFF'
+#                        var.targets[0].id = armature
+#                        var.targets[0].bone_target = "puck_control"
+#                        var.targets[0].transform_type = 'LOC_X'
+#                        var.targets[0].transform_space = 'TRANSFORM_SPACE'
+#                        var.targets[1].id = armature
+#                        var.targets[1].bone_target = bone_name
+#                        var.targets[1].transform_type = 'LOC_X'
+#                        var.targets[1].transform_space = 'TRANSFORM_SPACE'
+#                        driver.expression = "distance > 0.1"
+
+            
+            
+            # Set up drivers for layer visibility - using bones instead of the planes
+            
+#            for layer in gp_obj.data.layers:
+#                if layer.info.startswith(""):
 #                    layer_index = int(layer.info.split(" ")[-1])
 #                    target_obj = collection.objects.get(f"Mouth Shape {layer_index}")
 #                    if target_obj:
@@ -497,6 +625,27 @@ class CreateRig(bpy.types.Operator):
 #                        var.targets[1].transform_type = 'LOC_X'
 #                        var.targets[1].transform_space = 'LOCAL_SPACE'
 #                        driver.expression = "distance < 0.1"
+#            
+#            # Add drivers to control layer visibility
+#            for dup_index, dup_obj in enumerate(collection.objects):
+#                if dup_obj.type == 'GPENCIL':
+#                    for layer in gp_obj.data.layers:
+#                        if layer.info.startswith(dup_obj.name): # leads to issue where same name start causes double drivers to be added
+#                            driver = layer.driver_add("hide").driver
+#                            driver.type = 'SCRIPTED'
+#                            # set the type first (default is 'SINGLE_PROP')
+#                            var = driver.variables.new()
+#                            var.type = 'LOC_DIFF'
+#                            var.name = 'distance'
+#                            var.targets[0].id = armature
+#                            var.targets[0].bone_target = "puck_control"
+#                            # var.targets[0].data_path = 'location'
+#                            var.targets[0].transform_space = 'TRANSFORM_SPACE'
+#                            var.targets[1].id = 
+#                            # var.targets[1].data_path = 'location'
+#                            var.targets[1].transform_space = 'TRANSFORM_SPACE'
+#                            driver.expression = "1 - (3.02 > distance > 3)"
+
             
              # Ensure the control board and puck bones follow the objects
             control_board_bone_obj = armature.pose.bones["control_board"]
@@ -509,13 +658,50 @@ class CreateRig(bpy.types.Operator):
             childof_control_board.target = armature
             childof_control_board.subtarget = "control_board"
             
+#            # Set up drivers for layer visibility using bones
+#            for layer in gp_obj.data.layers:
+#                # layer.hide = True
+#                empty_name = bone_name.replace(" Shape Bone", " empty")
+#                if layer.info.startswith(bone_name.replace(" Shape Bone", "")):
+#                    driver = layer.driver_add("hide").driver
+#                    driver.type = 'SCRIPTED'
+#            
+#                    var = driver.variables.new()
+#                    var.name = "distance"
+#                    var.type = 'LOC_DIFF'
+#            
+#                    var.targets[0].id = armature
+#                    var.targets[0].bone_target = "puck_control"
+#                    var.targets[0].transform_space = 'TRANSFORM_SPACE'
+#                    var.targets[1].id = bpy.data.objects[empty_name]
+#                    var.targets[1].transform_space = 'TRANSFORM_SPACE'
+#            
+#                    driver.expression = "distance > 0.1"
+                        
+#                        drivers = gp_obj.animation_data.drivers
+#                        cdriver = drivers[0]
+#                        cdriver.modifiers.remove(cdriver.modifiers[0])
+#                        
+#                         # Access the F-Curve
+#                        fcurve = gp_obj.animation_data.drivers.find("hide")
+#    
+#    # Ensure the F-Curve exists
+#                        if fcurve:
+#                            # Insert keyframes at frame 1 and 100
+#                            fcurve.keyframe_points.insert(frame=1, value=0.0)
+#                            fcurve.keyframe_points.insert(frame=100, value=1.0)
+#                            
+#                            # Optionally, you can set interpolation type (e.g., 'LINEAR', 'CONSTANT', etc.)
+#                            for key in fcurve.keyframe_points:
+#                                key.interpolation = 'LINEAR'
+                                
 
             # Add the armature to the same collection as the Grease Pencil object
             collection = gp_obj.users_collection[0]
             if armature.users_collection:
                 for coll in armature.users_collection:
                     coll.objects.unlink(armature)
-            collection.objects.link(armature)
+                    collection.objects.link(armature)
 
             self.report({'INFO'}, "Rig created with two bones.")
             return {'FINISHED'}
@@ -716,6 +902,7 @@ def register():
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
     bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
     bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
+    bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
 
 
 def unregister():
@@ -725,6 +912,8 @@ def unregister():
     del bpy.types.Scene.finish_mouth_count
     del bpy.types.Scene.face_layers
     del bpy.types.Scene.grease_pencil_face_rig_settings
+    if 'get_bone_distance' in bpy.app.driver_namespace:
+        del bpy.app.driver_namespace['get_bone_distance']
 
 
 if __name__ == "__main__":
