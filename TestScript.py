@@ -8,22 +8,21 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
-#Current Issues: 
-# At very large/small scales, the drivers do not work??? Have to use bones for targets
-# or we can use empties
-#similar names starting with same
-#word trigger erroneous driver creation
-#recoriding should be set on, then turned off once finished?
-# Need to use x and Y location so that if any of them 
-# meet the distance requirements, the shape is changed
+#Current Issues for mouths: 
+# UI shenaningans
+# 
 
-#missing features: 
+# Current Issues for Eyes
+ #Not yet implemented 
+
+#missing features for mouths: 
 # The created bones for each shape should be able to move 
 # the objects they correspond to, so every mouth shape should be moveable
 # via the hidden bones, that means they are shinkrwrapped to the plane
-# and the empties need to move too 
+# and the Gp objects need to move too 
 # Scale thickness needs to be ON for all grease pencil objects X
 # Use Lights Button
+# Hooks for lattice setup? Lattice needs vertex groups
 
 
 # Adding lablels to controla board rig (bones that take the shape
@@ -37,6 +36,7 @@ bl_info = {
 #Tips/things to remember: 
 # Always use transform space
 # It is the Z location, not Y locaiton.
+# apply scaling and rotation to custom bone shape meshes
 
 import bpy
 import bmesh
@@ -60,8 +60,22 @@ def get_bone_distance(armature, bone1_name, bone2_name):
     return distance
 
 
+class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
+    mouth_shape_name: bpy.props.StringProperty(
+        name="Mouth Shape Name",
+        description="Enter a name for the mouth shape",
+        default="",
+        maxlen=25,
+    )
+    Eye_shape_name: bpy.props.StringProperty(
+        name="Eye Shape Name",
+        description="Enter a name for the eye shape",
+        default="",
+        maxlen=25,
+    )
+
 # Operator to center view on the world origin
-class ViewCenterOrigin(bpy.types.Operator):
+class ViewCenterOriginMouths(bpy.types.Operator):
     "Center the view on the world origin, add a plane, create a Grease Pencil object with a correctly configured material, and enter draw mode"""
     bl_idname = "view3d.center_origin"
     bl_label = "Create Grease Pencil!"
@@ -186,7 +200,151 @@ class GPAddNewLayer(bpy.types.Operator):
         return {'CANCELLED'}
 
 
-class GPDoneDrawing(bpy.types.Operator):
+
+
+
+class FinishMouthShape(bpy.types.Operator):
+    """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
+    bl_idname = "gpencil.finish_mouth_shape"
+    bl_label = "Finish Mouth Shape"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def is_layer_empty(self, layer):
+        """Check if a Grease Pencil layer is empty"""
+        for frame in layer.frames:
+            if frame.strokes:
+                return False
+        return True
+
+    def execute(self, context):
+        # Get the name for the mouth shape from the property group
+        mouth_name = bpy.context.scene.grease_pencil_face_rig_settings.mouth_shape_name
+        # print(mouth_name)
+
+        # Check if the mouth shape name is provided
+        if not mouth_name:
+            self.report({'WARNING'}, "You should enter a name for the mouth shape")
+            return {'CANCELLED'}
+
+        # Get the active object
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GPENCIL':
+
+            # Check if all visible layers are empty
+            all_empty = True
+            for layer in gp_obj.data.layers:
+                if not layer.hide and not self.is_layer_empty(layer):
+                    all_empty = False
+                    break
+
+            if all_empty:
+                self.report({'WARNING'}, "No shapes drawn in visible layers")
+                return {'CANCELLED'}
+            for layer in gp_obj.data.layers:
+                if not layer.hide:
+                    layer.info = mouth_name
+            # Duplicate the Grease Pencil object
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.select_all(action='DESELECT')
+            gp_obj.select_set(True)
+            bpy.ops.object.duplicate()
+            gp_duplicate = context.active_object
+            # Set gp_duplicate name to the provided mouth shape name
+            gp_duplicate.name = mouth_name
+
+            # Scale the duplicate
+            gp_duplicate.scale *= 0.2
+           
+            # Create or get the "Mouth Rig Control Board Objects" collection within "Temp Drawing Collection"
+            parent_collection_name = "Temp Drawing Collection"
+            new_collection_name = "Mouth Rig Control Board Objects"
+            
+
+            parent_collection = bpy.data.collections.get(parent_collection_name)
+            if not parent_collection:
+                parent_collection = bpy.data.collections.new(parent_collection_name)
+                context.scene.collection.children.link(parent_collection)
+
+            new_collection = bpy.data.collections.get(new_collection_name)
+            if not new_collection:
+                new_collection = bpy.data.collections.new(new_collection_name)
+                parent_collection.children.link(new_collection)
+            else:
+                if new_collection.name not in parent_collection.children:
+                    parent_collection.children.link(new_collection)
+
+            
+            
+            # Create a text object for the mouth shape name
+            bpy.ops.object.text_add(enter_editmode=False, location=(gp_duplicate.location.x, gp_duplicate.location.y, gp_duplicate.location.z - 0.2))
+            text_obj = context.active_object
+            text_obj.data.body = mouth_name
+            
+            text_obj.rotation_euler = (1.5708, 0, 0) 
+            text_obj.name = mouth_name + "Text" 
+            # Set text alignment to center
+            text_obj.data.align_x = 'CENTER'
+            text_obj.data.align_y = 'CENTER'
+            
+            # Calculate the scale based on the length of the text
+            base_scale = 0.1
+            text_length = len(text_obj.data.body)
+
+            # Adjust the scale inversely proportional to the length of the text
+            scale_factor = base_scale / (text_length * 0.1)
+            if text_lenth > 6:
+                text_obj.scale = (scale_factor, scale_factor, scale_factor)
+            else:
+                text_obj.scale = (.1, .1, .1)
+            
+            # Link the text object & Duplicate to the new collection
+            new_collection.objects.link(gp_duplicate)
+            new_collection.objects.link(text_obj)
+            parent_collection.objects.unlink(gp_duplicate)
+            bpy.context.scene.collection.objects.unlink(text_obj)
+
+            # Parent the text object to the duplicated GP object
+            text_obj.select_set(True)
+            gp_duplicate.select_set(True)
+            context.view_layer.objects.active = gp_duplicate
+            bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+            gp_duplicate.hide_viewport = True
+            text_obj.hide_viewport =True
+            
+            
+            # Get the count of finished mouth shapes
+            # Increment the count
+            count = context.scene.finish_mouth_count
+            context.scene.finish_mouth_count += 1
+
+            # Return to the original Grease Pencil object
+            bpy.ops.object.select_all(action='DESELECT')
+            context.view_layer.objects.active = gp_obj
+            gp_obj.select_set(True)
+
+            # Hide all existing layers in the original GP object
+            for layer in gp_obj.data.layers:
+                layer.hide = True
+
+            # Create a new layer in the original GP object
+            new_layer = gp_obj.data.layers.new(name="New Mouth Layer", set_active=True)
+            new_layer.info = "New Mouth Layer"  # Optional: set a name for the layer
+            new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
+
+            # Enter draw mode on the original GP object
+            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+
+            # Clear the mouth_shape_name property
+            context.scene.grease_pencil_face_rig_settings.mouth_shape_name = ""
+
+            self.report({'INFO'}, "Mouth shape finished. Ready for new drawing.")
+            return {'FINISHED'}
+        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+        return {'CANCELLED'}
+
+
+
+class GPDoneDrawingMouth(bpy.types.Operator):
     """Exit draw mode and arrange duplicated GP objects"""
     bl_idname = "gpencil.done_drawing"
     bl_label = "Done"
@@ -206,7 +364,7 @@ class GPDoneDrawing(bpy.types.Operator):
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
             # Create or get the vertex group
-            vgroup_name = "GP Vertices"
+            vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 gp_obj.vertex_groups.new(name=vgroup_name)
 
@@ -348,9 +506,6 @@ class GPDoneDrawing(bpy.types.Operator):
                 collection.objects.link(puck)
                 context.collection.objects.unlink(puck)
 
-             
-                
-
             # Hide everything in the collection from render view
             for obj in collection.objects:
                 obj.hide_render = True
@@ -375,6 +530,30 @@ class GPDoneDrawing(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             gp_obj.select_set(True)
             context.view_layer.objects.active = gp_obj
+            
+            #Create lattice for the mouth object
+             # Add a lattice
+            bpy.ops.object.add(type='LATTICE', enter_editmode=False, align='WORLD', location=(0, 0, 0), scale=(2, .2, 1))
+
+            lattice = context.active_object
+            lattice.name = "GPMouthLattice"
+            lattice.data.interpolation_type_u = 'KEY_BSPLINE'
+            lattice.data.interpolation_type_v = 'KEY_BSPLINE'
+            lattice.data.interpolation_type_w = 'KEY_BSPLINE'
+            lattice.data.points_u = 6 
+            lattice.data.points_v = 2  
+            lattice.data.points_w = 6  
+            lattice.scale[0] = 2
+            lattice.scale[1] = .03
+
+            # Add a lattice modifier to the GP object
+            bpy.ops.object.select_all(action='DESELECT')
+            gp_obj.select_set(True)
+            context.view_layer.objects.active = gp_obj
+            mod = bpy.ops.object.gpencil_modifier_add(type='GP_LATTICE')
+            bpy.context.object.grease_pencil_modifiers["Lattice"].object = bpy.data.objects["GPMouthLattice"]
+            collection.objects.link(lattice)
+            context.collection.objects.unlink(lattice)
 
             self.report({'INFO'},
                         f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
@@ -392,11 +571,11 @@ class CreateRig(bpy.types.Operator):
 
 
     def execute(self, context):
-        
+################################ Mouth Rig Creation ########################################
         # Get the active object
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GPENCIL':
-            vgroup_name = "GP Vertices"
+            vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 self.report({'ERROR'}, f"Vertex group '{vgroup_name}' not found.")
                 return {'CANCELLED'}
@@ -462,11 +641,11 @@ class CreateRig(bpy.types.Operator):
         control_board_bone.show_wire = True
         
         # Create the puck control bone
-        puck_control_bone = bones.new("puck_control")
-        puck_control_bone.head = puck.location
-        puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
-        puck_control_bone.parent = control_board_bone
-        puck_control_bone.use_connect = False
+        mouth_puck_control_bone = bones.new("mouth_puck_control")
+        mouth_puck_control_bone.head = puck.location
+        mouth_puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
+        mouth_puck_control_bone.parent = control_board_bone
+        mouth_puck_control_bone.use_connect = False
         
         #Create Bones for each GP object in the other collection and set them to hide
         bone_names = []
@@ -500,13 +679,13 @@ class CreateRig(bpy.types.Operator):
                 child_bone.bone.hide = True
 
         if 'Mouth Shape Control Selector' in bpy.data.objects:
-            puck_control_bone_obj = pose_bones["puck_control"]
-            puck_control_bone_obj.custom_shape = bpy.data.objects['Mouth Shape Control Selector']
-            puck_control_bone_obj.use_custom_shape_bone_size = False
-            puck_control_bone_obj.bone.hide = False
+            mouth_puck_control_bone_obj = pose_bones["mouth_puck_control"]
+            mouth_puck_control_bone_obj.custom_shape = bpy.data.objects['Mouth Shape Control Selector']
+            mouth_puck_control_bone_obj.use_custom_shape_bone_size = False
+            mouth_puck_control_bone_obj.bone.hide = False
         
         # Add shrinkwrap constraint to the puck bone
-        shrinkwrap = puck_control_bone_obj.constraints.new('SHRINKWRAP')
+        shrinkwrap = mouth_puck_control_bone_obj.constraints.new('SHRINKWRAP')
         shrinkwrap.target = control_board
         shrinkwrap.wrap_mode = 'ON_SURFACE'
         # shrinkwrap.use_keep_above_surface = True
@@ -534,7 +713,7 @@ class CreateRig(bpy.types.Operator):
                     var1.name = "puck_x"
                     var1.type = 'TRANSFORMS'
                     var1.targets[0].id = armature
-                    var1.targets[0].bone_target = "puck_control"
+                    var1.targets[0].bone_target = "mouth_puck_control"
                     var1.targets[0].transform_type = 'LOC_X'
                     var1.targets[0].transform_space = 'WORLD_SPACE'
                     
@@ -550,7 +729,7 @@ class CreateRig(bpy.types.Operator):
                     var3.name = "puck_z"
                     var3.type = 'TRANSFORMS'
                     var3.targets[0].id = armature
-                    var3.targets[0].bone_target = "puck_control"
+                    var3.targets[0].bone_target = "mouth_puck_control"
                     var3.targets[0].transform_type = 'LOC_Z'
                     var3.targets[0].transform_space = 'WORLD_SPACE'
                     
@@ -569,17 +748,14 @@ class CreateRig(bpy.types.Operator):
         
          # Ensure the control board and puck bones follow the objects
         control_board_bone_obj = armature.pose.bones["control_board"]
-        puck_control_bone_obj = armature.pose.bones["puck_control"]
+        mouth_puck_control_bone_obj = armature.pose.bones["mouth_puck_control"]
         
         childof_puck = puck.constraints.new('CHILD_OF')
         childof_puck.target = armature
-        childof_puck.subtarget = "puck_control"
+        childof_puck.subtarget = "mouth_puck_control"
         childof_control_board = control_board.constraints.new('CHILD_OF')
         childof_control_board.target = armature
         childof_control_board.subtarget = "control_board"
-        
-
-                            
 
         # Add the armature to the same collection as the Grease Pencil object
         collection = gp_obj.users_collection[0]
@@ -587,154 +763,18 @@ class CreateRig(bpy.types.Operator):
             for coll in armature.users_collection:
                 coll.objects.unlink(armature)
             collection.objects.link(armature)
+            
+        # Find the lattice object and add a CHILD_OF constraint to it
+        lattice = bpy.data.objects.get("GPMouthLattice")
+        if lattice:
+            lattice_constraint = lattice.constraints.new(type =  'CHILD_OF')
+            lattice_constraint.target = bpy.data.objects["GP_Rig"]
+            lattice_constraint.subtarget = "GP Mouth Bone"
+            # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
+
+
 
             self.report({'INFO'}, "Rig created with two bones.")
-            return {'FINISHED'}
-        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
-        return {'CANCELLED'}
-
-
-class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
-    mouth_shape_name: bpy.props.StringProperty(
-        name="Mouth Shape Name",
-        description="Enter a name for the mouth shape",
-        default="",
-        maxlen=25,
-    )
-
-
-class FinishMouthShape(bpy.types.Operator):
-    """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
-    bl_idname = "gpencil.finish_mouth_shape"
-    bl_label = "Finish Mouth Shape"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def is_layer_empty(self, layer):
-        """Check if a Grease Pencil layer is empty"""
-        for frame in layer.frames:
-            if frame.strokes:
-                return False
-        return True
-
-    def execute(self, context):
-        # Get the name for the mouth shape from the property group
-        mouth_name = bpy.context.scene.grease_pencil_face_rig_settings.mouth_shape_name
-        # print(mouth_name)
-
-        # Check if the mouth shape name is provided
-        if not mouth_name:
-            self.report({'WARNING'}, "You should enter a name for the mouth shape")
-            return {'CANCELLED'}
-
-        # Get the active object
-        gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GPENCIL':
-
-            # Check if all visible layers are empty
-            all_empty = True
-            for layer in gp_obj.data.layers:
-                if not layer.hide and not self.is_layer_empty(layer):
-                    all_empty = False
-                    break
-
-            if all_empty:
-                self.report({'WARNING'}, "No shapes drawn in visible layers")
-                return {'CANCELLED'}
-            for layer in gp_obj.data.layers:
-                if not layer.hide:
-                    layer.info = mouth_name
-            # Duplicate the Grease Pencil object
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.ops.object.select_all(action='DESELECT')
-            gp_obj.select_set(True)
-            bpy.ops.object.duplicate()
-            gp_duplicate = context.active_object
-            # Set gp_duplicate name to the provided mouth shape name
-            gp_duplicate.name = mouth_name
-
-            # Scale the duplicate
-            gp_duplicate.scale *= 0.2
-           
-            # Create or get the "Mouth Rig Control Board Objects" collection within "Temp Drawing Collection"
-            parent_collection_name = "Temp Drawing Collection"
-            new_collection_name = "Mouth Rig Control Board Objects"
-            
-
-            parent_collection = bpy.data.collections.get(parent_collection_name)
-            if not parent_collection:
-                parent_collection = bpy.data.collections.new(parent_collection_name)
-                context.scene.collection.children.link(parent_collection)
-
-            new_collection = bpy.data.collections.get(new_collection_name)
-            if not new_collection:
-                new_collection = bpy.data.collections.new(new_collection_name)
-                parent_collection.children.link(new_collection)
-            else:
-                if new_collection.name not in parent_collection.children:
-                    parent_collection.children.link(new_collection)
-
-            
-            
-            # Create a text object for the mouth shape name
-            bpy.ops.object.text_add(enter_editmode=False, location=(gp_duplicate.location.x, gp_duplicate.location.y, gp_duplicate.location.z - 0.2))
-            text_obj = context.active_object
-            text_obj.data.body = mouth_name
-            
-            text_obj.rotation_euler = (1.5708, 0, 0) 
-            text_obj.name = mouth_name + "Text" 
-            # Set text alignment to center
-            text_obj.data.align_x = 'CENTER'
-            text_obj.data.align_y = 'CENTER'
-            
-            # Calculate the scale based on the length of the text
-            base_scale = 0.1
-            text_length = len(text_obj.data.body)
-
-            # Adjust the scale inversely proportional to the length of the text
-            scale_factor = base_scale / (text_length * 0.1)
-            text_obj.scale = (scale_factor, scale_factor, scale_factor)
-            
-            # Link the text object & Duplicate to the new collection
-            new_collection.objects.link(gp_duplicate)
-            new_collection.objects.link(text_obj)
-            parent_collection.objects.unlink(gp_duplicate)
-            bpy.context.scene.collection.objects.unlink(text_obj)
-
-            # Parent the text object to the duplicated GP object
-            text_obj.select_set(True)
-            gp_duplicate.select_set(True)
-            context.view_layer.objects.active = gp_duplicate
-            bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-            gp_duplicate.hide_viewport = True
-            text_obj.hide_viewport =True
-            
-            
-            # Get the count of finished mouth shapes
-            # Increment the count
-            count = context.scene.finish_mouth_count
-            context.scene.finish_mouth_count += 1
-
-            # Return to the original Grease Pencil object
-            bpy.ops.object.select_all(action='DESELECT')
-            context.view_layer.objects.active = gp_obj
-            gp_obj.select_set(True)
-
-            # Hide all existing layers in the original GP object
-            for layer in gp_obj.data.layers:
-                layer.hide = True
-
-            # Create a new layer in the original GP object
-            new_layer = gp_obj.data.layers.new(name="New Mouth Layer", set_active=True)
-            new_layer.info = "New Mouth Layer"  # Optional: set a name for the layer
-            new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
-
-            # Enter draw mode on the original GP object
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
-
-            # Clear the mouth_shape_name property
-            context.scene.grease_pencil_face_rig_settings.mouth_shape_name = ""
-
-            self.report({'INFO'}, "Mouth shape finished. Ready for new drawing.")
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
@@ -747,27 +787,90 @@ class ToolsPanel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_tools"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'GP Face tools'
+    bl_category = 'GP Face Tools'
 
     def draw(self, context):
-        name = context.scene.grease_pencil_face_rig_settings
         layout = self.layout
         obj = context.object
 
-        if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
-            layout.operator(ViewCenterOrigin.bl_idname, text="Create Grease Pencil")
+        # Step 1: Create or Edit Rig
+        col = layout.column(align=True)
+        
+        col.label(text="1. Start")
+        col.alert = True
+        col.operator(ViewCenterOriginMouths.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
+        col.alert = False
+        col.operator(ViewCenterOriginMouths.bl_idname, text="Edit an existing Rig", icon = 'EDITMODE_HLT')
 
+        # Step 2: Draw Facial Features by each feature
+        col = layout.column(align=True)
+        col.label(text="2. Draw Features")
+        col.operator("gpencil.draw_eyes", text="Draw Eyes")
         if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
-            layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            # layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
-            # Add text field and Finish Mouth Shape operator
-            row = layout.row()
-            row.prop(name, "mouth_shape_name")
-            layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            row = col.row()
+            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
+            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
+        col.operator("gpencil.draw_mouth", text="Draw Mouth")
+#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+#            row = col.row()
+#            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
+#            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+#            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
+#        col.operator("gpencil.draw_nose", text="Draw Nose")
+#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+#            row = col.row()
+#            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
+#            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+#            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
 
-            layout.operator(GPDoneDrawing.bl_idname, text="Done")
-        if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
-            layout.operator(CreateRig.bl_idname, text="Create Rig")
+#        # Step 3: Drawing, Editing, Sculpting Tools
+#        col = layout.column(align=True)
+#        col.label(text="3. Tools")
+#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+#            row = col.row()
+#            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
+#            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+#            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
+
+        # Step 4: Create Rig
+        col = layout.column(align=True)
+        col.label(text="4. Finalize")
+        col.operator(CreateRig.bl_idname, text="Create Rig")
+
+
+
+#class ToolsPanel(bpy.types.Panel):
+#    """Creates a Panel in the viewport for GP Face Tools"""
+#    bl_label = "Grease Pencil Face Tools"
+#    bl_idname = "VIEW3D_PT_tools"
+#    bl_space_type = 'VIEW_3D'
+#    bl_region_type = 'UI'
+#    bl_category = 'GP Face tools'
+
+#    def draw(self, context):
+#        name = context.scene.grease_pencil_face_rig_settings
+#        layout = self.layout
+#        obj = context.object
+
+#        if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#            layout.operator(ViewCenterOriginMouths.bl_idname, text="Create Grease Pencil")
+
+#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#            layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
+#            # layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
+#            # Add text field and Finish Mouth Shape operator
+#            row = layout.row()
+#            row.prop(name, "mouth_shape_name")
+#            layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
+
+#            layout.operator(GPDoneDrawingMouth.bl_idname, text="Done")
+#        if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#            layout.operator(CreateRig.bl_idname, text="Create Rig")
 
 
 # Registration
@@ -775,11 +878,11 @@ class ToolsPanel(bpy.types.Panel):
 classes = (
     GreasePencilFaceRigSettings,
     FinishMouthShape,
-    ViewCenterOrigin,
+    ViewCenterOriginMouths,
     ToolsPanel,
     GPAddNewLayer,
     CreateRig,
-    GPDoneDrawing
+    GPDoneDrawingMouth
 )
 
 
@@ -859,7 +962,7 @@ if __name__ == "__main__":
 #                        var.name = "distance"
 #                        var.type = 'LOC_DIFF'
 #                        var.targets[0].id = armature
-#                        var.targets[0].bone_target = "puck_control"
+#                        var.targets[0].bone_target = "mouth_puck_control"
 #                        var.targets[0].transform_type = 'LOC_X'
 #                        var.targets[0].transform_space = 'TRANSFORM_SPACE'
 #                        var.targets[1].id = armature
@@ -882,7 +985,7 @@ if __name__ == "__main__":
 #                        var = driver.variables.new()
 #                        var.name = "distance"
 #                        var.targets[0].id = armature
-#                        var.targets[0].bone_target = "puck_control"
+#                        var.targets[0].bone_target = "mouth_puck_control"
 #                        var.targets[0].transform_type = 'DISTANCE'
 #                        var.targets[0].transform_space = 'LOCAL_SPACE'
 #                        var.targets[1].id = target_obj
@@ -902,7 +1005,7 @@ if __name__ == "__main__":
 #                            var.type = 'LOC_DIFF'
 #                            var.name = 'distance'
 #                            var.targets[0].id = armature
-#                            var.targets[0].bone_target = "puck_control"
+#                            var.targets[0].bone_target = "mouth_puck_control"
 #                            # var.targets[0].data_path = 'location'
 #                            var.targets[0].transform_space = 'TRANSFORM_SPACE'
 #                            var.targets[1].id = 
@@ -931,7 +1034,7 @@ if __name__ == "__main__":
 #                    var.type = 'LOC_DIFF'
 #            
 #                    var.targets[0].id = armature
-#                    var.targets[0].bone_target = "puck_control"
+#                    var.targets[0].bone_target = "mouth_puck_control"
 #                    var.targets[0].transform_space = 'TRANSFORM_SPACE'
 #                    var.targets[1].id = bpy.data.objects[empty_name]
 #                    var.targets[1].transform_space = 'TRANSFORM_SPACE'
@@ -967,7 +1070,7 @@ if __name__ == "__main__":
 #                    var1.name = "bone1" #+ bone2
 #                    var1.type = 'TRANSFORMS'
 #                    var1.targets[0].id = armature
-#                    var1.targets[0].bone_target = "puck_control"
+#                    var1.targets[0].bone_target = "mouth_puck_control"
 #                    var1.targets[0].transform_type = 'LOC_X'
 #                    var1.targets[0].transform_space = 'TRANSFORM_SPACE'
 #                    
