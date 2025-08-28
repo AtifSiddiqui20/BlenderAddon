@@ -1,8 +1,8 @@
 bl_info = {
     "name": "View and Movement Tools",
     "author": "Attaboy!",
-    "version": (0, 0, 1),
-    "blender": (3, 6, 0),
+    "version": (0, 0, 2),
+    "blender": (4, 5, 0),
     "category": "Grease Pencil",
     "location": "View 3D > Tool Shelf > GP Face tool",
     "description": "Create and edit 2d faces with Grease Pencil",
@@ -16,7 +16,7 @@ bl_info = {
  #Not yet implemented 
 
 #missing features for mouths: 
-# The created bones for each shape should be able to move the gp shapes
+# The created bones for each shape should be able to move the gp shapes-DONE
 # they correspond to, so every mouth shape should be moveable
 # via the hidden bones, that means they are shinkrwrapped to the plane
 # show hidden bones button? 
@@ -638,6 +638,10 @@ class CreateRig(bpy.types.Operator):
 
     def execute(self, context):
 ############################### Widget Creation/Import and Organization ####################
+
+
+
+
 ############################### Face Control Board Creation ################################        
         
         
@@ -756,7 +760,7 @@ class CreateRig(bpy.types.Operator):
 
                 
 
-                print(f"Created bone: {mouth_shape_bone.name}")
+                print(f"Created bone: {mouth_shape_bone.name} with object constraint")
                   
         # Switch back to the armature
         bpy.context.view_layer.objects.active = armature  
@@ -865,9 +869,15 @@ class CreateRig(bpy.types.Operator):
             lattice_constraint = lattice.constraints.new(type =  'CHILD_OF')
             lattice_constraint.target = bpy.data.objects["GP_Rig"]
             lattice_constraint.subtarget = "GP Mouth Bone"
+        # Create bones for lattice and assign vertex groups to vertices to mouth bone - set to linear 
+        
+        
+        
+        
+        # Add bones to control hooks 
             # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
 
-
+        # Create Mouth Face Rig Control Panel
 
             self.report({'INFO'}, "Rig created with two bones.")
             return {'FINISHED'}
