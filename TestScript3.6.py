@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "View and Movement Tools",
+    "name": "GP Face Rig Tools",
     "author": "Attaboy!",
     "version": (0, 0, 1),
     "blender": (3, 6, 0),
