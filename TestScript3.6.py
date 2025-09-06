@@ -1,8 +1,8 @@
 bl_info = {
     "name": "View and Movement Tools",
     "author": "Attaboy!",
-    "version": (0, 0, 2),
-    "blender": (4, 5, 0),
+    "version": (0, 0, 1),
+    "blender": (3, 6, 0),
     "category": "Grease Pencil",
     "location": "View 3D > Tool Shelf > GP Face tool",
     "description": "Create and edit 2d faces with Grease Pencil",
@@ -13,8 +13,7 @@ bl_info = {
 # Correct Scale needed - Hopefully solved
 
 # Current Issues for Eyes
- #Not yet implemented
-
+ #Not yet implemented 
 
 #missing features for mouths: 
 # The created bones for each shape should be able to move the gp shapes-DONE
