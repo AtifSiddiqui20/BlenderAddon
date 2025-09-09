@@ -708,6 +708,7 @@ class CreateRig(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Create the control board bone
+        bpy.ops.object.mode_set(mode = 'EDIT')
         control_board_bone = bones.new("control_board")
         control_board_bone.head = control_board.location
         control_board_bone.tail = (control_board.location.x, control_board.location.y, control_board.location.z + control_board.scale.z)
@@ -725,15 +726,19 @@ class CreateRig(bpy.types.Operator):
         
         #Create Bones for each GP object in the other collection and set them to hide
         bone_names = []
+        edit_bones = armature.data.edit_bones
         
         for obj in collection.objects[:] :
             if obj.type == 'GPENCIL':
                 bone_name = obj.name
                 print(f"Creating bone for: {bone_name}") 
                 mouth_shape_bone = bones.new(bone_name + " Shape Bone")
+                control_board_bone = edit_bones['control_board']
+                mouth_shape_bone.parent = control_board_bone
                 mouth_shape_bone.head = obj.location
                 mouth_shape_bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
-                mouth_shape_bone.parent = control_board_bone
+                
+                self.report({'INFO'}, f"Parenting {mouth_shape_bone.name} to {control_board_bone.name}") 
                 mouth_shape_bone.use_connect = False
                 mouth_shape_bone.use_deform = True
                 mouth_shape_bone.hide = True
@@ -757,10 +762,14 @@ class CreateRig(bpy.types.Operator):
                 # Ensure Blender updates again
                 bpy.context.view_layer.update()
                 obj.update_tag(refresh={'OBJECT'})
+                 # Switch back to the armature
+                bpy.context.view_layer.objects.active = armature
+                bpy.ops.object.mode_set(mode = 'EDIT')
+                 
 
                 
 
-                print(f"Created bone: {mouth_shape_bone.name} with object constraint")
+                # print(f"Created bone: {mouth_shape_bone.name} with object constraint")
                   
         # Switch back to the armature
         bpy.context.view_layer.objects.active = armature  
