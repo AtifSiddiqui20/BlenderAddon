@@ -9,7 +9,7 @@ bl_info = {
 }
 
 # Current Issues for mouths: 
-# UI shenaningans
+# UI shenaningans - move control board much closer
 # Correct Scale needed - Hopefully solved
 
 # Current Issues for Eyes

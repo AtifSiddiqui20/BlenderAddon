@@ -10,6 +10,8 @@ bl_info = {
 
 # Current Issues for mouths: 
 # UI shenaningans
+# Will not enter paint mode after create is clicked
+
 # Correct Scale needed - Hopefully solved
 
 # Current Issues for Eyes
@@ -23,6 +25,7 @@ bl_info = {
 # show hidden bones button? 
 # Bone for mouth control/canvas
 # Widgets 
+# Increment frame number to enable onion skinning
 
 # and the Gp objects need to move too 
 # Scale thickness needs to be ON for all grease pencil objects X
@@ -49,6 +52,7 @@ import os
 import math
 import re
 from mathutils import Vector
+from bpy import context
 
 
 def get_bone_distance(armature, bone1_name, bone2_name):
@@ -122,7 +126,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         # Grease Pencil object and material setup
         gp_name = "GP Temp Face Object"
         if gp_name not in bpy.data.objects:
-            gp_data = bpy.data.grease_pencils.new(gp_name)
+            gp_data = bpy.data.grease_pencils_v3.new(gp_name)
             gp_obj = bpy.data.objects.new(gp_name, gp_data)
             collection.objects.link(gp_obj)
         else:
@@ -132,25 +136,26 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         gp_obj.location = (0, 0, 0)
         context.view_layer.objects.active = gp_obj
         gp_obj.select_set(True)
-        bpy.ops.object.mode_set(mode = 'EDIT_GPENCIL')
+        bpy.ops.object.mode_set(mode = 'EDIT')
         bpy.context.scene.tool_settings.gpencil_sculpt.use_scale_thickness = True
-        bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+        bpy.ops.object.mode_set(mode='PAINT_GREASE_PENCIL')
         new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
-        new_layer.info = "New GP Layer"  # Optional: set a name for the layer
-        new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
+        new_layer.name = "New GP Layer"  # Optional: set a name for the layer
+        new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
 
         # Material setup
         if "Default Material" in bpy.data.materials.keys():
             gp_mat = bpy.data.materials["Default Material"]
         else:
-            gp_mat = bpy.data.materials.new("Default Matieral")
+            gp_mat = bpy.data.materials.new("Default Material")
 
         if not gp_mat.is_grease_pencil:
             bpy.data.materials.create_gpencil_data(gp_mat)
             gp_mat.grease_pencil.color = (0, 0, 0, 1)
-
-            gp_data.materials.append(gp_mat)
-            bpy.ops.gpencil.draw(wait_for_input=False)
+            
+        
+        gp_data.materials.append(gp_mat)
+        
 
         return {'FINISHED'}
 
@@ -168,11 +173,12 @@ class ViewCenterOriginMouths(bpy.types.Operator):
             if area.type == 'VIEW_3D':
                 for region in area.regions:
                     if region.type == 'WINDOW':
-                        override = {'area': area, 'region': region, 'space_data': area.spaces.active,
-                                    'region_3d': area.spaces.active.region_3d}
-                        bpy.ops.view3d.view_selected(override)
-                        obj.hide_select = True
-                        break
+                        with bpy.context.temp_override(area=area, region=region, space_data=area.spaces.active):
+                            bpy.ops.view3d.view_axis(type = 'FRONT')
+                            bpy.ops.view3d.view_selected(use_all_regions=False)
+                        
+                            break
+        obj.hide_select = True
 
     def make_plane_unselectable(self, obj):
         # Get the object by name and check if it is not None
@@ -187,6 +193,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
             bpy.data.materials.create_gpencil_data(mat)
             mat.grease_pencil.color = (0.4, 0.2, 0.8, 1.0)
             gp_obj.data.materials.append(mat)
+        bpy.ops.grease_pencil.paintmode_toggle()
         return gp_obj.data.materials[0]
 
 
@@ -198,10 +205,10 @@ class GPAddNewLayer(bpy.types.Operator):
 
     def execute(self, context):
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GPENCIL':
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
             new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
-            new_layer.info = "New GP Layer"  # Optional: set a name for the layer
-            new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
+            new_layer.name = "New GP Layer"  # Optional: set a name for the layer
+            new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
             face_layer_count = context.scene.face_layers
             face_layer_count += 1
             self.report({'INFO'}, "New layer added and activated for drawing.")
