@@ -10,7 +10,11 @@ bl_info = {
 
 # Current Issues for mouths: 
 # UI shenaningans
-# Will not enter paint mode after create is clicked
+# Items are not being arranged correctly
+# Mouth GP pbjects not deleting previous mouth shapes when duplicated into control board colleciton
+# Rig is not being created correctly - something to do with vertex groups
+# should probably use bone groups and collections now
+
 
 # Correct Scale needed - Hopefully solved
 
@@ -40,6 +44,10 @@ bl_info = {
 # Eyebrow Sliders/controls 
 # Lattice creation with bone hooks for every part
 # Add Delete Rig button for my collection
+# add custom props to make sure only face rigs are edited/created
+# go into edit mode for the entire rig - needs some way to idetify which part of the rig is being worked
+#on - likely use IDs for each
+# Mirror modifier/ button for eyes? Needs to keep origin in mind!
 
 #Tips/things to remember: 
 # Always use transform space
@@ -137,6 +145,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         context.view_layer.objects.active = gp_obj
         gp_obj.select_set(True)
         bpy.ops.object.mode_set(mode = 'EDIT')
+        # How to access tool menu--
         bpy.context.scene.tool_settings.gpencil_sculpt.use_scale_thickness = True
         bpy.ops.object.mode_set(mode='PAINT_GREASE_PENCIL')
         new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
@@ -148,9 +157,10 @@ class ViewCenterOriginMouths(bpy.types.Operator):
             gp_mat = bpy.data.materials["Default Material"]
         else:
             gp_mat = bpy.data.materials.new("Default Material")
-
+            
+        #Old way of Grease Pencil, might need to fix
         if not gp_mat.is_grease_pencil:
-            bpy.data.materials.create_gpencil_data(gp_mat)
+            bpy.data.materials.create_GREASE_PENCIL_data(gp_mat)
             gp_mat.grease_pencil.color = (0, 0, 0, 1)
             
         
@@ -188,9 +198,10 @@ class ViewCenterOriginMouths(bpy.types.Operator):
 
     def create_default_gp_material(self, gp_obj):
         # Create a new material
+        # Old way --0 need to fix
         if not gp_obj.data.materials:
             mat = bpy.data.materials.new(name="GP Default Material")
-            bpy.data.materials.create_gpencil_data(mat)
+            bpy.data.materials.create_GREASE_PENCIL_data(mat)
             mat.grease_pencil.color = (0.4, 0.2, 0.8, 1.0)
             gp_obj.data.materials.append(mat)
         bpy.ops.grease_pencil.paintmode_toggle()
@@ -199,7 +210,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
 
 class GPAddNewLayer(bpy.types.Operator):
     """Add a new layer to the active Grease Pencil object"""
-    bl_idname = "gpencil.add_new_layer"
+    bl_idname = "grease_pencil.add_new_layer"
     bl_label = "New Layer"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -219,7 +230,7 @@ class GPAddNewLayer(bpy.types.Operator):
 
 class FinishEyeShape(bpy.types.Operator):
     """Duplicate Eye drawings, scale, move them to correct locations on control board"""
-    bl_idname = "gpencil.finish_eye_shapes"
+    bl_idname = "grease_pencil.finish_eye_shapes"
     bl_label = "Finish Eye Shape"
     bl_options = {'REGISTER', 'UNDO'}
     
@@ -229,14 +240,14 @@ class FinishEyeShape(bpy.types.Operator):
 
 class FinishMouthShape(bpy.types.Operator):
     """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
-    bl_idname = "gpencil.finish_mouth_shape"
+    bl_idname = "grease_pencil.finish_mouth_shape"
     bl_label = "Finish Mouth Shape"
     bl_options = {'REGISTER', 'UNDO'}
 
     def is_layer_empty(self, layer):
         """Check if a Grease Pencil layer is empty"""
-        for frame in layer.frames:
-            if frame.strokes:
+        for GPencilframe in layer.frames:
+            if GPencilframe.items:
                 return False
         return True
 
@@ -252,7 +263,7 @@ class FinishMouthShape(bpy.types.Operator):
 
         # Get the active object
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GPENCIL':
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
 
             # Check if all visible layers are empty
             all_empty = True
@@ -266,7 +277,7 @@ class FinishMouthShape(bpy.types.Operator):
                 return {'CANCELLED'}
             for layer in gp_obj.data.layers:
                 if not layer.hide:
-                    layer.info = mouth_name
+                    layer.name = mouth_name
             # Duplicate the Grease Pencil object
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.ops.object.select_all(action='DESELECT')
@@ -278,6 +289,7 @@ class FinishMouthShape(bpy.types.Operator):
             for layer in gp_duplicate.data.layers:
                 if layer.hide:
                     #Deletes all layers that are hidden
+                    # Needs updating - does not work currently
                     gp_duplicate.data.layers.remove(layer)
             
         #assign each dup layer to vertex group for eventual bone parenting 
@@ -285,25 +297,31 @@ class FinishMouthShape(bpy.types.Operator):
         ## make sure to make the letters move too. Might have to redo it with constraints instead
         # to move in Object modfe rather than edit mode
         # also the extra layers arent being deleted
-            if gp_duplicate and gp_duplicate.type == 'GPENCIL':
+            if gp_duplicate and gp_duplicate.type == 'GREASEPENCIL':
             # Create or get the vertex group
                 vgroup_name = mouth_name + " Shape Bone"
                 if vgroup_name not in gp_duplicate.vertex_groups:
                     gp_duplicate.vertex_groups.new(name=vgroup_name)
                 # Enter edit mode
-                bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+                bpy.ops.object.mode_set(mode='EDIT')
 #                # Reveal all existing layers in the original GP object
 #                for layer in gp_duplicate.data.layers:
 #                    layer.hide = False
                 # Select all strokes
-                bpy.ops.gpencil.select_all(action='SELECT')
+                
+                bpy.ops.grease_pencil.select_all(action='SELECT')
                 # Assign selected vertices to the vertex group
                 for area in bpy.context.screen.areas:
                     if area.type == 'VIEW_3D':
                         for region in area.regions:
                             if region.type == 'WINDOW':
-                                override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
-                                bpy.ops.gpencil.vertex_group_assign(override)
+                                
+                                with bpy.context.temp_override(
+                                        area=area,
+                                        region=region,
+                                        edit_object=bpy.context.edit_object
+                                ):
+                                    bpy.ops.object.vertex_group_assign()
                                 break
                 bpy.ops.object.mode_set(mode='OBJECT')
                 self.report({'INFO'}, "Vertices added to mouth controller vertex group.")
@@ -388,11 +406,11 @@ class FinishMouthShape(bpy.types.Operator):
 
             # Create a new layer in the original GP object
             new_layer = gp_obj.data.layers.new(name="New Mouth Layer", set_active=True)
-            new_layer.info = "New Mouth Layer"  # Optional: set a name for the layer
-            new_layer.frames.new(frame_number=0)  # Ensure there's a frame to draw on
+            new_layer.name = "New Mouth Layer"  # Optional: set a name for the layer
+            new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
 
             # Enter draw mode on the original GP object
-            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+            bpy.ops.object.mode_set(mode='PAINT_GREASE_PENCIL')
 
             # Clear the mouth_shape_name property
             context.scene.grease_pencil_face_rig_settings.mouth_shape_name = ""
@@ -406,7 +424,7 @@ class FinishMouthShape(bpy.types.Operator):
 
 class GPDoneDrawingMouth(bpy.types.Operator):
     """Exit draw mode and arrange duplicated GP objects"""
-    bl_idname = "gpencil.done_drawing"
+    bl_idname = "grease_pencil.done_drawing"
     bl_label = "Done"
     bl_options = {'REGISTER', 'UNDO'}
     
@@ -420,7 +438,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
         #Need to check for drawings currently not saved with name
         # Get the active object
 #        gp_obj = context.active_object
-#        if gp_obj and gp_obj.type == 'GPENCIL':
+#        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
 #            active_layer = gp_obj.data.layers.active
 #            if active_layer
 #        
@@ -432,29 +450,30 @@ class GPDoneDrawingMouth(bpy.types.Operator):
         self.remove_object_by_name("Mouth Shape Control Selector")
         context.active_object.select_set(True)
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GPENCIL':
+        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
             # Create or get the vertex group
             vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 gp_obj.vertex_groups.new(name=vgroup_name)
 
             # Enter edit mode
-            bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+            bpy.ops.object.mode_set(mode='EDIT_GREASE_PENCIL')
 
             # Reveal all existing layers in the original GP object
             for layer in gp_obj.data.layers:
                 layer.hide = False
 
             # Select all strokes
-            bpy.ops.gpencil.select_all(action='SELECT')
+            bpy.ops.grease_pencil.select_all(action='SELECT')
 
             # Assign selected vertices to the vertex group
+            #Old will need updating
             for area in bpy.context.screen.areas:
                 if area.type == 'VIEW_3D':
                     for region in area.regions:
                         if region.type == 'WINDOW':
                             override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
-                            bpy.ops.gpencil.vertex_group_assign(override)
+                            bpy.ops.grease_pencil.vertex_group_assign(override)
                             break
         bpy.ops.object.mode_set(mode='OBJECT')
         self.report({'INFO'}, "Vertices added to mouth controller vertex group.")
@@ -464,6 +483,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
         collection = bpy.data.collections.get(collection_name)
 
         if collection is not None:
+            # This is not working for some reason
             # Define the spacing between objects
             spacing_x = .5
             spacing_z = .5
@@ -479,7 +499,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             for obj in collection.objects:
                 obj.hide_viewport = False
                 # Set the object's location if they are GP objects
-                if obj.type == 'GPENCIL':
+                if obj.type == 'GREASE_PENCIL':
                     obj.location.x = x
                     obj.location.z = z
                     gp_object_count += 1
@@ -526,16 +546,22 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             bmesh.update_edit_mesh(plane_mesh)
 
             # Create an override context for the VIEW_3D area and region
+            
             for area in bpy.context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    for region in area.regions:
-                        if region.type == 'WINDOW':
-                            override = {'area': area, 'region': region, 'edit_object': plane}
-                            bpy.ops.view3d.snap_cursor_to_selected(override)
+                    if area.type == 'VIEW_3D':
+                        for region in area.regions:
+                            if region.type == 'WINDOW':
+                                # Using temp_override for cleaner context override
+                                with bpy.context.temp_override(
+                                        area=area,
+                                        region=region,
+                                        edit_object = plane
+                                ):
+                                    bpy.ops.view3d.snap_cursor_to_selected()
+                                break
+                            else:
+                                continue
                             break
-                    else:
-                        continue
-                    break
 
             # Return to object mode and set the origin to the cursor
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -582,7 +608,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
                 # Parent only GP objects in the collection to the plane 
 # Now using Constraints for this
 #                if obj != plane: 
-#                    if obj.type == 'GPENCIL': 
+#                    if obj.type == 'GREASE_PENCIL': 
 #                        obj.select_set(True)
 #                        plane.select_set(True)
 #                        context.view_layer.objects.active = plane
@@ -597,7 +623,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             puck.select_set(False)
             
 
-            # Return to Gpencil object
+            # Return to GREASE_PENCIL object
             bpy.ops.object.select_all(action='DESELECT')
             gp_obj.select_set(True)
             context.view_layer.objects.active = gp_obj
@@ -624,8 +650,8 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             gp_obj.select_set(True)
             context.view_layer.objects.active = gp_obj
-            mod = bpy.ops.object.gpencil_modifier_add(type='GP_LATTICE')
-            bpy.context.object.grease_pencil_modifiers["Lattice"].object = bpy.data.objects["GPMouthLattice"]
+            mod = bpy.ops.object.modifier_add(type='GREASE_PENCIL_LATTICE')
+            bpy.context.object.modifiers["Lattice"].object = bpy.data.objects["GPMouthLattice"]
             collection.objects.link(lattice)
             context.collection.objects.unlink(lattice)
 
@@ -658,7 +684,7 @@ class CreateRig(bpy.types.Operator):
 ################################ Mouth Rig Creation ########################################
         # Get the active object
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GPENCIL':
+        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
             vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 self.report({'ERROR'}, f"Vertex group '{vgroup_name}' not found.")
@@ -671,6 +697,7 @@ class CreateRig(bpy.types.Operator):
 
 
         # Create a new armature object
+        # ---Context error here---
         bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
         armature = context.object
         armature.name = "GP_Rig"
@@ -687,6 +714,10 @@ class CreateRig(bpy.types.Operator):
         root_bone.tail = (0, 1, 0.5)
 
         # Create the named bone and place it in middle of Lattice
+        # Not named vgroup anymore?
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
+            vgroup_name = "GP Mouth Bone"
         named_bone = bones.new(vgroup_name)
         named_bone.head = (0, 0, -0.05)
         named_bone.tail = (0, 0, 0.05)
@@ -735,7 +766,7 @@ class CreateRig(bpy.types.Operator):
         bone_names = []
         
         for obj in collection.objects[:] :
-            if obj.type == 'GPENCIL':
+            if obj.type == 'GREASEPENCIL':
                 bone_name = obj.name
                 print(f"Creating bone for: {bone_name}") 
                 mouth_shape_bone = bones.new(bone_name + " Shape Bone")
@@ -907,7 +938,7 @@ class ToolsPanel(bpy.types.Panel):
         obj = context.object
 
         # Step 1: Create or Edit Rig
-        if context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+        if context.mode not in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
             col = layout.column(align=True)
         
             col.label(text="1. Start")
@@ -919,22 +950,22 @@ class ToolsPanel(bpy.types.Panel):
         # Step 2: Draw Facial Features by each feature
         col = layout.column(align=True)
         col.label(text="2. Draw Features")
-        col.operator("gpencil.draw_eyes", text="Draw Eyes")
-        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+        col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
+        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
             row = col.row()
             row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
-        col.operator("gpencil.draw_mouth", text="Draw Mouth")
-#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+        col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
+#        if obj and obj.type == 'GREASE_PENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
 #            row = col.row()
 #            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
 #            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
 #            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
-#        col.operator("gpencil.draw_nose", text="Draw Nose")
-#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#        col.operator("GREASE_PENCIL.draw_nose", text="Draw Nose")
+#        if obj and obj.type == 'GREASE_PENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
 #            row = col.row()
 #            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
@@ -944,7 +975,7 @@ class ToolsPanel(bpy.types.Panel):
 #        # Step 3: Drawing, Editing, Sculpting Tools
 #        col = layout.column(align=True)
 #        col.label(text="3. Tools")
-#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#        if obj and obj.type == 'GREASE_PENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
 #            row = col.row()
 #            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
@@ -971,10 +1002,10 @@ class ToolsPanel(bpy.types.Panel):
 #        layout = self.layout
 #        obj = context.object
 
-#        if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#        if obj is None or obj.type != 'GREASE_PENCIL' or context.mode not in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            layout.operator(ViewCenterOriginMouths.bl_idname, text="Create Grease Pencil")
 
-#        if obj and obj.type == 'GPENCIL' and context.mode in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#        if obj and obj.type == 'GREASE_PENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            layout.operator(GPAddNewLayer.bl_idname, text="New Layer")
 #            # layout.operator(GPAddVerticesToGroup.bl_idname, text="Add Vertices to Group")
 #            # Add text field and Finish Mouth Shape operator
@@ -983,7 +1014,7 @@ class ToolsPanel(bpy.types.Panel):
 #            layout.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
 
 #            layout.operator(GPDoneDrawingMouth.bl_idname, text="Done")
-#        if obj is None or obj.type != 'GPENCIL' or context.mode not in {'PAINT_GPENCIL', 'EDIT_GPENCIL'}:
+#        if obj is None or obj.type != 'GREASE_PENCIL' or context.mode not in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            layout.operator(CreateRig.bl_idname, text="Create Rig")
 
 
@@ -1027,23 +1058,23 @@ if __name__ == "__main__":
 # Retired Methods
 # class GPAddVerticesToGroup(bpy.types.Operator):
 #     """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
-#     bl_idname = "gpencil.add_vertices_to_group"
+#     bl_idname = "GREASE_PENCIL.add_vertices_to_group"
 #     bl_label = "Add Vertices to Group"
 #     bl_options = {'REGISTER', 'UNDO'}
 #
 #     def execute(self, context):
 #         gp_obj = context.active_object
-#         if gp_obj and gp_obj.type == 'GPENCIL':
+#         if gp_obj and gp_obj.type == 'GREASE_PENCIL':
 #             # Create or get the vertex group
 #             vgroup_name = "GP Vertices"
 #             if vgroup_name not in gp_obj.vertex_groups:
 #                 gp_obj.vertex_groups.new(name=vgroup_name)
 #
 #             # Enter edit mode
-#             bpy.ops.object.mode_set(mode='EDIT_GPENCIL')
+#             bpy.ops.object.mode_set(mode='EDIT_GREASE_PENCIL')
 #
 #             # Select all strokes
-#             bpy.ops.gpencil.select_all(action='SELECT')
+#             bpy.ops.GREASE_PENCIL.select_all(action='SELECT')
 #
 #             # Assign selected vertices to the vertex group
 #             for area in bpy.context.screen.areas:
@@ -1051,11 +1082,11 @@ if __name__ == "__main__":
 #                     for region in area.regions:
 #                         if region.type == 'WINDOW':
 #                             override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
-#                             bpy.ops.gpencil.vertex_group_assign(override)
+#                             bpy.ops.GREASE_PENCIL.vertex_group_assign(override)
 #                             break
 #
 #             # Return to paint mode
-#             bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+#             bpy.ops.object.mode_set(mode='PAINT_GREASE_PENCIL')
 #
 #             self.report({'INFO'}, "Vertices added to vertex group.")
 #             return {'FINISHED'}
@@ -1109,7 +1140,7 @@ if __name__ == "__main__":
 #            
 #            # Add drivers to control layer visibility
 #            for dup_index, dup_obj in enumerate(collection.objects):
-#                if dup_obj.type == 'GPENCIL':
+#                if dup_obj.type == 'GREASE_PENCIL':
 #                    for layer in gp_obj.data.layers:
 #                        if layer.info.startswith(dup_obj.name): # leads to issue where same name start causes double drivers to be added
 #                            driver = layer.driver_add("hide").driver
@@ -1201,7 +1232,7 @@ if __name__ == "__main__":
             
             
 #            for obj in collection.objects:
-#                if obj.type == 'GPENCIL':
+#                if obj.type == 'GREASE_PENCIL':
 #                    bone_name = obj.name 
 #                    mouth_shape_bone = bones.new(bone_name + " Shape Bone")
 #                    mouth_shape_bone.head = obj.location
@@ -1211,7 +1242,7 @@ if __name__ == "__main__":
 #                    mouth_shape_bone.use_deform = False
             
             #        for obj in collection.objects:
-#            if obj.type == 'GPENCIL':
+#            if obj.type == 'GREASE_PENCIL':
 #                bpy.ops.object.empty_add(type='PLAIN_AXES', location=mouth_shape_bone.head)
 #                empty = bpy.context.object
 #                empty.name = bone_name + " empty"
@@ -1227,7 +1258,7 @@ if __name__ == "__main__":
 
 #            # Add drivers to control layer visibility
 #            for dup_index, dup_obj in enumerate(collection.objects):
-#                if dup_obj.type == 'GPENCIL' and dup_obj != plane and dup_obj != puck:
+#                if dup_obj.type == 'GREASE_PENCIL' and dup_obj != plane and dup_obj != puck:
 #                    for layer in gp_obj.data.layers:
 #                        if layer.info.startswith(dup_obj.name): # leads to issue where same name start causes double drivers to be added
 #                            driver = layer.driver_add("hide").driver
