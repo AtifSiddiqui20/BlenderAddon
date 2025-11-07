@@ -450,14 +450,14 @@ class GPDoneDrawingMouth(bpy.types.Operator):
         self.remove_object_by_name("Mouth Shape Control Selector")
         context.active_object.select_set(True)
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
             # Create or get the vertex group
             vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 gp_obj.vertex_groups.new(name=vgroup_name)
 
             # Enter edit mode
-            bpy.ops.object.mode_set(mode='EDIT_GREASE_PENCIL')
+            bpy.ops.object.mode_set(mode='EDIT')
 
             # Reveal all existing layers in the original GP object
             for layer in gp_obj.data.layers:
@@ -472,8 +472,12 @@ class GPDoneDrawingMouth(bpy.types.Operator):
                 if area.type == 'VIEW_3D':
                     for region in area.regions:
                         if region.type == 'WINDOW':
-                            override = {'area': area, 'region': region, 'edit_object': bpy.context.edit_object}
-                            bpy.ops.grease_pencil.vertex_group_assign(override)
+                            with bpy.context.temp_override(
+                                    area = area,
+                                    region = region,
+                                    edit_object = bpy.context.edit_object
+                            ):
+                                bpy.ops.object.vertex_group_assign()
                             break
         bpy.ops.object.mode_set(mode='OBJECT')
         self.report({'INFO'}, "Vertices added to mouth controller vertex group.")
@@ -499,9 +503,11 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             for obj in collection.objects:
                 obj.hide_viewport = False
                 # Set the object's location if they are GP objects
-                if obj.type == 'GREASE_PENCIL':
+                if obj.type == 'GREASEPENCIL':
+                    self.report({'INFO'}, "accessed object for {obj.name}") 
                     obj.location.x = x
                     obj.location.z = z
+                
                     gp_object_count += 1
                     
                     # Update the x position for the next object
@@ -652,8 +658,13 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             context.view_layer.objects.active = gp_obj
             mod = bpy.ops.object.modifier_add(type='GREASE_PENCIL_LATTICE')
             bpy.context.object.modifiers["Lattice"].object = bpy.data.objects["GPMouthLattice"]
-            collection.objects.link(lattice)
+            
             context.collection.objects.unlink(lattice)
+            collection.objects.link(lattice)
+            # Put GP back to active
+            bpy.ops.object.select_all(action='DESELECT')
+            gp_obj.select_set(True)
+            
 
             self.report({'INFO'},
                         f"Arranged {len(collection.objects)} objects in {(len(collection.objects) + items_per_row - 1) // items_per_row} rows.")
@@ -684,7 +695,7 @@ class CreateRig(bpy.types.Operator):
 ################################ Mouth Rig Creation ########################################
         # Get the active object
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
             vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 self.report({'ERROR'}, f"Vertex group '{vgroup_name}' not found.")
@@ -716,7 +727,7 @@ class CreateRig(bpy.types.Operator):
         # Create the named bone and place it in middle of Lattice
         # Not named vgroup anymore?
         gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
             vgroup_name = "GP Mouth Bone"
         named_bone = bones.new(vgroup_name)
         named_bone.head = (0, 0, -0.05)
