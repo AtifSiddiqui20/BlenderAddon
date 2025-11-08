@@ -153,18 +153,20 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
 
         # Material setup
-        if "Default Material" in bpy.data.materials.keys():
-            gp_mat = bpy.data.materials["Default Material"]
+        if "Default Face Material" in bpy.data.materials.keys():
+            gp_mat = bpy.data.materials["Default Face Material"]
+            bpy.data.materials.create_gpencil_data(gp_mat)
+            
+            
         else:
-            gp_mat = bpy.data.materials.new("Default Material")
+            gp_mat = bpy.data.materials.new("Default Face Material")
+            bpy.data.materials.create_gpencil_data(gp_mat)
             
-        #Old way of Grease Pencil, might need to fix
-        if not gp_mat.is_grease_pencil:
-            bpy.data.materials.create_GREASE_PENCIL_data(gp_mat)
-            gp_mat.grease_pencil.color = (0, 0, 0, 1)
-            
-        
+              
+        gp_mat.use_nodes = False 
         gp_data.materials.append(gp_mat)
+        gp_mat.grease_pencil.color = (0, 0, 0, 1)    
+        
         
 
         return {'FINISHED'}
@@ -198,10 +200,10 @@ class ViewCenterOriginMouths(bpy.types.Operator):
 
     def create_default_gp_material(self, gp_obj):
         # Create a new material
-        # Old way --0 need to fix
+        
         if not gp_obj.data.materials:
             mat = bpy.data.materials.new(name="GP Default Material")
-            bpy.data.materials.create_GREASE_PENCIL_data(mat)
+            bpy.data.materials.create_gpencil_data(mat)
             mat.grease_pencil.color = (0.4, 0.2, 0.8, 1.0)
             gp_obj.data.materials.append(mat)
         bpy.ops.grease_pencil.paintmode_toggle()
@@ -747,6 +749,7 @@ class CreateRig(bpy.types.Operator):
         puck = None
         for obj in collection.objects:
             if obj.name == "Mouths Control Board Plane":
+                #Change this things name!
                 control_board = obj
                 obj.hide_viewport = True
             elif obj.name == "Mouth Shape Control Selector":
@@ -775,42 +778,60 @@ class CreateRig(bpy.types.Operator):
         
         #Create Bones for each GP object in the other collection and set them to hide
         bone_names = []
+        for obj in collection.objects:
+            if obj.type== 'GREASEPENCIL':
+                bone_names.append(obj.name)
+                
         
-        for obj in collection.objects[:] :
+        if collection and armature and armature.type == 'ARMATURE':
+            bpy.context.view_layer.objects.active = armature
+            bpy.ops.object.mode_set(mode='EDIT')
+            arm_data = armature.data
+    
+            control_board_bone = arm_data.edit_bones.get("control_board")
+    
+        for obj in collection.objects:
             if obj.type == 'GREASEPENCIL':
-                bone_name = obj.name
-                print(f"Creating bone for: {bone_name}") 
-                mouth_shape_bone = bones.new(bone_name + " Shape Bone")
-                mouth_shape_bone.head = obj.location
-                mouth_shape_bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
-                mouth_shape_bone.parent = control_board_bone
-                mouth_shape_bone.use_connect = False
-                mouth_shape_bone.use_deform = True
-                mouth_shape_bone.hide = True
-                bone_names.append(mouth_shape_bone.name)
-                # Add constraints to duplicated GP Mouths to the rig's bones of the same name
-                childof_dup_gp_face = obj.constraints.new('CHILD_OF')
-                childof_dup_gp_face.target = armature
-                childof_dup_gp_face.subtarget = mouth_shape_bone.name
-                bpy.context.view_layer.update()
-                bpy.ops.object.mode_set(mode='OBJECT')
-                bpy.context.view_layer.update()
-                # Select the object before applying the inverse
-                bpy.context.view_layer.objects.active = obj  # Ensure obj is active
+                bone_name = f"{obj.name}_Shape_Bone"
+                print(f"Creating bone for: {bone_name}")
+            
+                bone = arm_data.edit_bones.new(bone_name)
+                bone.head = obj.location
+                bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
+            
+            if control_board_bone:
+                bone.parent = control_board_bone
+    
+    # back to object mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+    
+        
+    
+    # now add constraints in Object mode
+        for obj in collection.objects:
+            if obj.type == 'GREASEPENCIL':
+                bone_name = f"{obj.name}_Shape_Bone"
+            
+                constraint = obj.constraints.new('CHILD_OF')
+                constraint.target = armature
+                constraint.subtarget = bone_name
+            
+        
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
+            if obj.name == "Mouths Control Board Plane":
+                constraint = obj.constraints.new('CHILD_OF')
+                constraint.target = armature
+                constraint.subtarget = control_board_bone.name
+                bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
+                
 
-                # Switch to Object Mode (required for setting inverse)
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-                # Apply the inverse
-                bpy.ops.constraint.childof_set_inverse(constraint=childof_dup_gp_face.name, owner='OBJECT')  
-
-                # Ensure Blender updates again
-                bpy.context.view_layer.update()
-                obj.update_tag(refresh={'OBJECT'})
+        bpy.context.view_layer.update()
+        print("All bones created and constraints added.")
 
                 
 
-                print(f"Created bone: {mouth_shape_bone.name} with object constraint")
+    
                   
         # Switch back to the armature
         bpy.context.view_layer.objects.active = armature  
@@ -933,6 +954,7 @@ class CreateRig(bpy.types.Operator):
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
+    
 
 
 # Panel to hold the buttons
@@ -997,6 +1019,7 @@ class ToolsPanel(bpy.types.Panel):
         col = layout.column(align=True)
         col.label(text="4. Finalize")
         col.operator(CreateRig.bl_idname, text="Create Rig")
+        
 
 
 
@@ -1029,6 +1052,8 @@ class ToolsPanel(bpy.types.Panel):
 #            layout.operator(CreateRig.bl_idname, text="Create Rig")
 
 
+
+
 # Registration
 
 classes = (
@@ -1038,7 +1063,8 @@ classes = (
     ToolsPanel,
     GPAddNewLayer,
     CreateRig,
-    GPDoneDrawingMouth
+    GPDoneDrawingMouth,
+    
 )
 
 
