@@ -12,7 +12,7 @@ bl_info = {
 # UI shenaningans
 # Items are not being arranged correctly
 # Mouth GP pbjects not deleting previous mouth shapes when duplicated into control board colleciton
-# Rig is not being created correctly - something to do with vertex groups
+# Gp object nopt being parented correctly to gp mouth bone
 # should probably use bone groups and collections now
 
 
@@ -727,7 +727,7 @@ class CreateRig(bpy.types.Operator):
         root_bone.tail = (0, 1, 0.5)
 
         # Create the named bone and place it in middle of Lattice
-        # Not named vgroup anymore?
+        
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GREASEPENCIL':
             vgroup_name = "GP Mouth Bone"
@@ -821,8 +821,9 @@ class CreateRig(bpy.types.Operator):
                 bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
             if obj.name == "Mouths Control Board Plane":
                 constraint = obj.constraints.new('CHILD_OF')
+                bone_name = "control_board"
                 constraint.target = armature
-                constraint.subtarget = control_board_bone.name
+                constraint.subtarget = bone_name
                 bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
                 
 
@@ -862,20 +863,28 @@ class CreateRig(bpy.types.Operator):
 
         # Switch back to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='DESELECT')
+        
 
         # Parent the GP object to the armature with weights previously defined
+        # Not working?
+        gp_obj = bpy.data.objects["GP Temp Face Object"]
         gp_obj.select_set(True)
-        armature.select_set(True)
-        context.view_layer.objects.active = armature
-        bpy.ops.object.parent_set(type='ARMATURE')
+        gp_obj.parent = armature
+        gp_obj.parent_type = 'ARMATURE'
+        arm_mod = gp_obj.modifiers.new(name="ArmatureDeform", type='GREASE_PENCIL_ARMATURE')
+        arm_mod.object = armature
+        arm_mod.use_vertex_groups = True
         
 
         # Set up drivers for layer visibility using bones
         
+        
         for layer in gp_obj.data.layers:
             for bone_name in bone_names:
                 layer_pattern = re.compile(f"^{bone_name.replace(' Shape Bone', '')}(\.\d+)?$")
-                if layer_pattern.match(layer.info):
+                bone_name = bone_name + "_Shape_Bone"
+                if layer_pattern.match(layer.name):
                     driver = layer.driver_add("hide").driver
                     driver.type = 'SCRIPTED'
                 
@@ -907,7 +916,7 @@ class CreateRig(bpy.types.Operator):
                     var4.name = "bone_z"
                     var4.type = 'TRANSFORMS'
                     var4.targets[0].id = armature
-                    var4.targets[0].bone_target = bone_name
+                    var4.targets[0].bone_target = bone_name 
                     var4.targets[0].transform_type = 'LOC_Z'
                     var4.targets[0].transform_space = 'WORLD_SPACE'
                     
@@ -923,9 +932,7 @@ class CreateRig(bpy.types.Operator):
         childof_puck = puck.constraints.new('CHILD_OF')
         childof_puck.target = armature
         childof_puck.subtarget = "mouth_puck_control"
-        childof_control_board = control_board.constraints.new('CHILD_OF')
-        childof_control_board.target = armature
-        childof_control_board.subtarget = "control_board"
+        
 
         # Add the armature to the same collection as the Grease Pencil object
         collection = gp_obj.users_collection[0]
