@@ -9,7 +9,7 @@ bl_info = {
 }
 
 # Current Issues for mouths: 
-# UI shenaningans
+# UI shenaningans - Box not being correct size
 # Items are not being arranged correctly
 # Mouth GP pbjects not deleting previous mouth shapes when duplicated into control board colleciton
 # Gp object nopt being parented correctly to gp mouth bone
@@ -530,9 +530,9 @@ class GPDoneDrawingMouth(bpy.types.Operator):
                 if plsize != 1:
                     plane.scale = (2, plsize *.5, plsize / 1.9)
                 else: 
-                    plane.scale = (2, plsize, plsize/1.9)
+                    plane.scale = (2, plsize *.5, plsize/1.9)
             else:
-                plane.scale = (2, .403, .403)
+                plane.scale = (2, .5, .5)
             # Change origin to the leftmost top vertex
             plane_mesh = plane.data
             bmesh_plane = bmesh.from_edit_mesh(plane_mesh)
@@ -882,6 +882,7 @@ class CreateRig(bpy.types.Operator):
         
         for layer in gp_obj.data.layers:
             for bone_name in bone_names:
+                
                 layer_pattern = re.compile(f"^{bone_name.replace(' Shape Bone', '')}(\.\d+)?$")
                 bone_name = bone_name + "_Shape_Bone"
                 if layer_pattern.match(layer.name):
@@ -916,7 +917,7 @@ class CreateRig(bpy.types.Operator):
                     var4.name = "bone_z"
                     var4.type = 'TRANSFORMS'
                     var4.targets[0].id = armature
-                    var4.targets[0].bone_target = bone_name 
+                    var4.targets[0].bone_target = bone_name
                     var4.targets[0].transform_type = 'LOC_Z'
                     var4.targets[0].transform_space = 'WORLD_SPACE'
                     
