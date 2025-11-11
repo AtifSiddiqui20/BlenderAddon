@@ -90,8 +90,17 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         default="",
         maxlen=25,
     )
-    
-    
+    rig_mode_shape: bpy.props.EnumProperty(
+        name = "Rig Mode",
+        description = "Currrent Grease Pencil Face Shape mode",
+        items= [('NONE', "None", ""),
+            ('MOUTH', "Mouth", ""),
+            ('EYES', "Eyes", ""),
+            ('NOSE', "Nose", "")
+        ],
+        default='NONE'
+        # context.scene.face_rig_settings.rig_mode = 'MOUTH' - how to set
+    )
     
     
     
@@ -506,7 +515,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
                 obj.hide_viewport = False
                 # Set the object's location if they are GP objects
                 if obj.type == 'GREASEPENCIL':
-                    self.report({'INFO'}, "accessed object for {obj.name}") 
+                    self.report({'INFO'}, "accessed object for {'obj.name'}") 
                     obj.location.x = x
                     obj.location.z = z
                 
@@ -714,10 +723,29 @@ class CreateRig(bpy.types.Operator):
         bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
         armature = context.object
         armature.name = "GP_Rig"
+        arm_data = armature.data
         bpy.ops.object.mode_set(mode='EDIT')
 
         # Access the armature's edit bones
         bones = armature.data.edit_bones
+        #Create bone collections
+        bpy.ops.object.mode_set(mode='EDIT')
+        if "Bones" in arm_data.collections:
+            arm_data.collections.remove(arm_data.collections.get("Bones"))
+        if "Face" not in arm_data.collections:
+            face_coll = arm_data.collections.new("Face")
+        else:
+            face_coll = arm_data.collections["Face"]
+        mouth_coll = arm_data.collections.new("Mouth Bones", parent = face_coll)
+        eyes_coll = arm_data.collections.new("Eyes Bones", parent =face_coll)
+        nose_coll = arm_data.collections.new("Nose Bones", parent =face_coll)
+        hid_coll = arm_data.collections.new("Hidden Bones", parent =face_coll)
+        hid_coll.is_visible=False
+        hid_mouth_coll = arm_data.collections.new("Hidden Mouth Bones", parent =hid_coll)
+        hid_eyes_coll = arm_data.collections.new("Hidden Eyes Bones", parent =hid_coll)
+        hid_brows_coll = arm_data.collections.new("Hidden Eyebrow Bones", parent =hid_coll)
+        hid_nose_coll = arm_data.collections.new("Hidden Nose Bones", parent =hid_coll)
+        
 
         # Create the root bone, it's slightly offset
         # from the mouth to be in the center of the head it'll join with
@@ -725,6 +753,7 @@ class CreateRig(bpy.types.Operator):
         root_bone.name = "GP Face Rig Root"
         root_bone.head = (0, 1, 0)
         root_bone.tail = (0, 1, 0.5)
+        face_coll.assign(root_bone)
 
         # Create the named bone and place it in middle of Lattice
         
@@ -736,6 +765,7 @@ class CreateRig(bpy.types.Operator):
         named_bone.tail = (0, 0, 0.05)
         named_bone.parent = root_bone
         named_bone.use_connect = False
+        mouth_coll.assign(named_bone)
         
         # Retrieve control board and puck locations
         collection_name = "Mouth Rig Control Board Objects"
@@ -760,6 +790,9 @@ class CreateRig(bpy.types.Operator):
             self.report({'ERROR'}, "Control board or Selector not found in the collection.")
             return {'CANCELLED'}
         
+        
+        
+        
         # Create the control board bone
         control_board_bone = bones.new("control_board")
         control_board_bone.head = control_board.location
@@ -768,6 +801,7 @@ class CreateRig(bpy.types.Operator):
         control_board_bone.use_connect = False
         control_board_bone.use_deform = False
         control_board_bone.show_wire = True
+        mouth_coll.assign(control_board_bone)
         
         # Create the puck control bone
         mouth_puck_control_bone = bones.new("mouth_puck_control")
@@ -775,6 +809,7 @@ class CreateRig(bpy.types.Operator):
         mouth_puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
         mouth_puck_control_bone.parent = control_board_bone
         mouth_puck_control_bone.use_connect = False
+        mouth_coll.assign(mouth_puck_control_bone)
         
         #Create Bones for each GP object in the other collection and set them to hide
         bone_names = []
@@ -798,6 +833,7 @@ class CreateRig(bpy.types.Operator):
                 bone = arm_data.edit_bones.new(bone_name)
                 bone.head = obj.location
                 bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
+                hid_mouth_coll.assign(arm_data.edit_bones.get(bone_name))
             
             if control_board_bone:
                 bone.parent = control_board_bone
@@ -846,8 +882,8 @@ class CreateRig(bpy.types.Operator):
             control_board_bone_obj.custom_shape = bpy.data.objects['Mouths Control Board Plane']
             
             control_board_bone_obj.use_custom_shape_bone_size = False
-            for child_bone in control_board_bone_obj.children:
-                child_bone.bone.hide = True
+            #for child_bone in control_board_bone_obj.children:
+                # child_bone.bone.hide = True
 
         if 'Mouth Shape Control Selector' in bpy.data.objects:
             mouth_puck_control_bone_obj = pose_bones["mouth_puck_control"]
@@ -991,6 +1027,7 @@ class ToolsPanel(bpy.types.Panel):
         # Step 2: Draw Facial Features by each feature
         col = layout.column(align=True)
         col.label(text="2. Draw Features")
+        col.label(text= "Draw Mouth Shapes")
         col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
@@ -1084,6 +1121,7 @@ def register():
     bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
     bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
+    
 
 
 def unregister():
