@@ -498,50 +498,31 @@ class GPDoneDrawingMouth(bpy.types.Operator):
         collection = bpy.data.collections.get(collection_name)
 
         if collection is not None:
-            # This is not working for some reason
-            # Define the spacing between objects
-            spacing_x = .5
-            spacing_z = .5
+            spacing_x = 0.5
+            spacing_z = 0.5
             items_per_row = 4
-
-            # Initialize the position variables
             x = 2.0
             z = 2.25
-            plsize = 0  # initialize the plane size
 
-            # Iterate through the objects in the collection
-            gp_object_count = 0  # Counter for Grease Pencil objects
+            gp_object_count = 0
             for obj in collection.objects:
                 obj.hide_viewport = False
-                # Set the object's location if they are GP objects
                 if obj.type == 'GREASEPENCIL':
-                    self.report({'INFO'}, "accessed object for {'obj.name'}") 
                     obj.location.x = x
                     obj.location.z = z
-                
                     gp_object_count += 1
-                    
-                    # Update the x position for the next object
                     x += spacing_x
 
-                    # Check if we need to move to the next row
                     if (gp_object_count % items_per_row == 0):
-                        x = 2.0  # Reset x position for the new row
-                        z -= spacing_z  # Move to the next row
-                        plsize += 1  # Increment the plane's z scaling
+                        x = 2.0
+                        z -= spacing_z
 
-            # Create Another Plane and resize it to the size of the mouths
+            num_rows = math.ceil(gp_object_count / items_per_row)
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
             plane = context.active_object
             plane.name = "Mouths Control Board Plane"
-            #plane.transform_apply(location = False, scale = True, rotation = False)
-            if plsize != 0:
-                if plsize != 1:
-                    plane.scale = (2, plsize *.5, plsize / 1.9)
-                else: 
-                    plane.scale = (2, plsize *.5, plsize/1.9)
-            else:
-                plane.scale = (2, .5, .5)
+
+            plane.scale = (2, num_rows * 0.5, num_rows / 1.9)
             # Change origin to the leftmost top vertex
             plane_mesh = plane.data
             bmesh_plane = bmesh.from_edit_mesh(plane_mesh)
@@ -833,7 +814,15 @@ class CreateRig(bpy.types.Operator):
                 bone = arm_data.edit_bones.new(bone_name)
                 bone.head = obj.location
                 bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
-                hid_mouth_coll.assign(arm_data.edit_bones.get(bone_name))
+                hid_mouth_coll.assign(arm_data.edit_bones.get(bone_name)) 
+                #add shrinkwrap to each bone to the control board
+                bpy.ops.object.mode_set(mode='POSE')
+                pose_bones = armature.pose.bones
+                pose_bone_mouth_shape = pose_bones[bone_name]
+                shrinkwrap = pose_bone_mouth_shape.constraints.new('SHRINKWRAP')
+                shrinkwrap.target = control_board
+                shrinkwrap.wrap_mode = 'ON_SURFACE'
+                bpy.ops.object.mode_set(mode='EDIT')
             
             if control_board_bone:
                 bone.parent = control_board_bone
@@ -958,6 +947,7 @@ class CreateRig(bpy.types.Operator):
                     var4.targets[0].transform_space = 'WORLD_SPACE'
                     
                     driver.expression = "(abs(puck_x - bone_x) > 0.1) or (abs(puck_z - bone_z) > 0.1)"
+                    
 
    
 
