@@ -9,11 +9,7 @@ bl_info = {
 }
 
 # Current Issues for mouths: 
-# UI shenaningans - Box not being correct size
-# Items are not being arranged correctly
-# Mouth GP pbjects not deleting previous mouth shapes when duplicated into control board colleciton
-# Gp object nopt being parented correctly to gp mouth bone
-# should probably use bone groups and collections now
+# Lattice set up not implemented
 
 
 # Correct Scale needed - Hopefully solved
@@ -127,6 +123,11 @@ class ViewCenterOriginMouths(bpy.types.Operator):
             context.scene.collection.children.link(collection)
         else:
             collection = bpy.data.collections[collection_name]
+            
+            
+        #Mode selection
+        context.scene.face_rig_settings.rig_mode = 'NONE'
+        
 
         # Plane creation and setup
         plane_name = "Target Drawing Plane"
@@ -147,7 +148,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         # Grease Pencil object and material setup
         gp_name = "GP Temp Face Object"
         if gp_name not in bpy.data.objects:
-            gp_data = bpy.data.grease_pencils_v3.new(gp_name)
+            gp_data = bpy.data.grease_pencils.new(gp_name)
             gp_obj = bpy.data.objects.new(gp_name, gp_data)
             collection.objects.link(gp_obj)
         else:
