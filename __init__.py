@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "View and Movement Tools",
+    "name": "GP Face Tools",
     "author": "Attaboy!",
     "version": (0, 0, 2),
     "blender": (5, 0, 0),
@@ -57,6 +57,7 @@ import math
 import re
 from mathutils import Vector
 from bpy import context
+from bpy.types import (Operator, Menu, Panel, UIList, PropertyGroup)
 
 
 def get_bone_distance(armature, bone1_name, bone2_name):
@@ -126,7 +127,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
             
             
         #Mode selection
-        context.scene.face_rig_settings.rig_mode = 'NONE'
+        # context.scene.face_rig_settings.rig_mode = 'NONE'
         
 
         # Plane creation and setup
@@ -1015,16 +1016,21 @@ class CreateRig(bpy.types.Operator):
     
 
 
-# Panel to hold the buttons
-class ToolsPanel(bpy.types.Panel):
+##### UI Panel #####
+class GPFaceRigPanel:
     """Creates a Panel in the viewport for GP Face Tools"""
-    bl_label = "Grease Pencil Face Tools"
-    bl_idname = "VIEW3D_PT_tools"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'GP Face Tools'
+    bl_category = 'GP Faces'
+    
+    
+class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
+    bl_label = "Grease Pencil Face Rig Workflow"
+    bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
+    
 
     def draw(self, context):
+        scn = context.scene
         layout = self.layout
         obj = context.object
 
@@ -1041,8 +1047,11 @@ class ToolsPanel(bpy.types.Panel):
         # Step 2: Draw Facial Features by each feature
         col = layout.column(align=True)
         col.label(text="2. Draw Features")
+        row = layout.row(align=True)
+        #row.prop(scn.grease_pencil_face_rig_settings, "drawing_feature", expand=True)
+        row.scale_y = 1.2   
         col.label(text= "Draw Mouth Shapes")
-        col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
+        #col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
             row = col.row()
@@ -1050,7 +1059,87 @@ class ToolsPanel(bpy.types.Panel):
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
         col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
-#        if obj and obj.type == 'GREASE_PENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
+#        
+        # Step 4: Create Rig
+        col = layout.column(align=True)
+        col.label(text="4. Finalize")
+        col.operator(CreateRig.bl_idname, text="Create Rig")
+        
+
+
+
+
+
+
+
+# Registration
+
+classes = (
+    GreasePencilFaceRigSettings,
+    FinishMouthShape,
+    ViewCenterOriginMouths,
+    ViewCenterOriginEyes,
+    GP_PT_Face_Rig_Workflow_Panel,
+    GPAddNewLayer,
+    CreateRig,
+    GPDoneDrawingMouth,
+    
+)
+def update_GP_tab():
+    try:
+        bpy.utils.unregister_class(GP_PT_Face_Rig_Workflow_Panel)
+    except:
+        pass
+    bpy.utils.register_class(GP_PT_Face_Rig_Workflow_Panel)
+    #interface_classes = (GP_PT_Face_Rig_Workflow_Panel, "")
+    #for cls in interface_classes:
+        #try:
+            #bpy.utils.unregister_class(cls)
+        #except:
+            #pass
+    #for cl in interface_classes:
+        #bpy.utils.register_class(cl)
+
+
+def register():
+    
+    #Register prop group!
+    
+    for cls in classes:
+        try:
+            bpy.utils.register_class(cls)
+            
+        except: 
+            pass
+    update_GP_tab()
+    bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
+    bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
+    bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
+
+    
+    
+    bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
+    
+
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+
+    del bpy.types.Scene.finish_mouth_count
+    del bpy.types.Scene.face_layers
+    del bpy.types.Scene.grease_pencil_face_rig_settings
+    if 'get_bone_distance' in bpy.app.driver_namespace:
+        del bpy.app.driver_namespace['get_bone_distance']
+
+
+if __name__ == "__main__":
+    register()
+
+# Retired Methods
+
+
+#               if obj and obj.type == 'GREASE_PENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
 #            row = col.row()
 #            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
@@ -1073,13 +1162,6 @@ class ToolsPanel(bpy.types.Panel):
 #            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
 #            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
 #            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
-
-        # Step 4: Create Rig
-        col = layout.column(align=True)
-        col.label(text="4. Finalize")
-        col.operator(CreateRig.bl_idname, text="Create Rig")
-        
-
 
 
 #class ToolsPanel(bpy.types.Panel):
@@ -1110,50 +1192,6 @@ class ToolsPanel(bpy.types.Panel):
 #        if obj is None or obj.type != 'GREASE_PENCIL' or context.mode not in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
 #            layout.operator(CreateRig.bl_idname, text="Create Rig")
 
-
-
-
-# Registration
-
-classes = (
-    GreasePencilFaceRigSettings,
-    FinishMouthShape,
-    ViewCenterOriginMouths,
-    ViewCenterOriginEyes,
-    ToolsPanel,
-    GPAddNewLayer,
-    CreateRig,
-    GPDoneDrawingMouth,
-    
-)
-
-
-def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
-
-    bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
-    bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
-    bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
-    bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
-    
-
-
-def unregister():
-    for cls in classes:
-        bpy.utils.unregister_class(cls)
-
-    del bpy.types.Scene.finish_mouth_count
-    del bpy.types.Scene.face_layers
-    del bpy.types.Scene.grease_pencil_face_rig_settings
-    if 'get_bone_distance' in bpy.app.driver_namespace:
-        del bpy.app.driver_namespace['get_bone_distance']
-
-
-if __name__ == "__main__":
-    register()
-
-# Retired Methods
 # class GPAddVerticesToGroup(bpy.types.Operator):
 #     """Add all vertices of the active Grease Pencil object to a vertex group with weight 1"""
 #     bl_idname = "GREASE_PENCIL.add_vertices_to_group"

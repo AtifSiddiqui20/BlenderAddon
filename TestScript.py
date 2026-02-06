@@ -62,7 +62,6 @@ import re
 from mathutils import Vector
 from bpy import context
 
-
 def get_bone_distance(armature, bone1_name, bone2_name):
     depsgraph = bpy.context.evaluated_depsgraph_get()
     armature_eval = armature.evaluated_get(depsgraph)
