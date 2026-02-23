@@ -58,7 +58,7 @@ import re
 from mathutils import Vector
 from bpy import context
 from bpy.types import (Operator, Menu, Panel, UIList, PropertyGroup)
-
+from bpy.props import (StringProperty, BoolProperty, IntProperty, FloatProperty, EnumProperty, PointerProperty)
 
 def get_bone_distance(armature, bone1_name, bone2_name):
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -75,12 +75,14 @@ def get_bone_distance(armature, bone1_name, bone2_name):
 
 
 class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
+    mouth_shape_name: str
     mouth_shape_name: bpy.props.StringProperty(
         name="Mouth Shape Name",
         description="Enter a name for the mouth shape",
         default="",
         maxlen=25,
     )
+    Eye_shape_name: str
     Eye_shape_name: bpy.props.StringProperty(
         name="Eye Shape Name",
         description="Enter a name for the eye shape",
@@ -106,18 +108,60 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
     
     
 
-# Operator to center view on the world origin
+# Operator to center view on the world origin and get correctly set up 
+class SetUp(bpy.types.Operator):
+    "Sets up temp collections, bones, and grease pencil objects for the face rig creation process"
+    bl_idname = "view3d.setup"
+    bl_label = "Create Grease Pencil Faces"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    #@classmethod
+    #def poll(cls, context):
+        #return context.Scene.gp_active_tab == 'CREATE'
+    
+    def execute(self, context):
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.view3d.view_axis(type='FRONT')
+        # Collection handling
+        collection_name = "Temp Drawing Collection"
+        if collection_name not in bpy.data.collections:
+            collection = bpy.data.collections.new(collection_name)
+            context.scene.collection.children.link(collection)
+        else:
+            collection = bpy.data.collections[collection_name]
+            
+        # Material setup
+        if "Default Face Material" in bpy.data.materials.keys():
+            gp_mat = bpy.data.materials["Default Face Material"]
+            bpy.data.materials.create_gpencil_data(gp_mat)
+            
+            
+        else:
+            gp_mat = bpy.data.materials.new("Default Face Material")
+            bpy.data.materials.create_gpencil_data(gp_mat)
+            
+              
+        gp_mat.use_nodes = False 
+        gp_mat.grease_pencil.color = (0, 0, 0, 1)    
+        
+            
+        context.scene.has_setup_been_run = True
+        
+        return {'FINISHED'}
+
 class ViewCenterOriginMouths(bpy.types.Operator):
     "Center the view on the world origin, add a plane, create a Grease Pencil object with a correctly configured material, and enter draw mode"""
     bl_idname = "view3d.center_origin"
-    bl_label = "Create Grease Pencil!"
+    bl_label = "Create Grease Pencil Mouth Object"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    # poll methoid to check if mouths is already set up
 
     def execute(self, context):
 
         bpy.ops.view3d.view_axis(type='FRONT')
 
-        # Collection handling
+        # Collection handling -- Move these to set up
         collection_name = "Temp Drawing Collection"
         if collection_name not in bpy.data.collections:
             collection = bpy.data.collections.new(collection_name)
@@ -146,7 +190,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         self.zoom_to_object(plane)
         self.make_plane_unselectable(plane)
 
-        # Grease Pencil object and material setup
+        # Grease Pencil object and material setup - 
         gp_name = "GP Temp Face Object"
         if gp_name not in bpy.data.objects:
             gp_data = bpy.data.grease_pencils.new(gp_name)
@@ -408,12 +452,20 @@ class FinishMouthShape(bpy.types.Operator):
             else:
                 text_obj.scale = (.1, .1, .1)
             
-            # Link the text object & Duplicate to the new collection
-            new_collection.objects.link(gp_duplicate)
-            new_collection.objects.link(text_obj)
-            parent_collection.objects.unlink(gp_duplicate)
-            bpy.context.scene.collection.objects.unlink(text_obj)
-
+            # Link the text object & Duplicate to the new collection -- need way to check which collection is being used
+            if gp_duplicate.name not in new_collection.objects:
+                new_collection.objects.link(gp_duplicate)
+            if text_obj.name not in new_collection.objects:
+                new_collection.objects.link(text_obj)
+            
+            for col in gp_duplicate.users_collection:
+                if col != new_collection:
+                    col.objects.unlink(gp_duplicate)
+            for col in text_obj.users_collection:
+                if col != new_collection:
+                    col.objects.unlink(text_obj)
+                    
+                    
             # Parent the text object to the duplicated GP object
             text_obj.select_set(True)
             gp_duplicate.select_set(True)
@@ -724,8 +776,7 @@ class CreateRig(bpy.types.Operator):
             
 
 
-        # Create a new armature object
-        # ---Context error here---
+        
         bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
         armature = context.object
         armature.name = "GP_Rig"
@@ -1004,13 +1055,19 @@ class CreateRig(bpy.types.Operator):
         
         
         
+        
+        
+        
         # Add bones to control hooks 
             # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
 
         # Create Mouth Face Rig Control Panel
 
+            
             self.report({'INFO'}, "Rig created with two bones.")
             return {'FINISHED'}
+        
+
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
     
@@ -1029,27 +1086,43 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
     
 
+    
+    
+
     def draw(self, context):
         scn = context.scene
         layout = self.layout
         obj = context.object
 
         # Step 1: Create or Edit Rig
+        row = layout.row(align=True)
+        row.prop(scn, "gp_active_tab", expand=True)
+        row.scale_y = 1.2 
+        if context.scene.gp_active_tab != 'CREATE':
+            return
         if context.mode not in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
             col = layout.column(align=True)
         
             col.label(text="1. Start")
             col.alert = True
-            col.operator(ViewCenterOriginMouths.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
+            col.operator(SetUp.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
+            if context.scene.has_setup_been_run:
+                layout.separator()
+                row = layout.row(align=True)
+                row.scale_y = 1.2
+                row.operator(ViewCenterOriginMouths.bl_idname, text="Create Mouth Shape", icon = 'FILE_NEW')
+                
+                 #col.operator(ViewCenterOriginEyes.bl_idname, text="View Eye Controllers", icon = 'HIDE_OFF')
+            #col.operator(ViewCenterOriginMouths.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
             col.alert = False
-            col.operator(ViewCenterOriginMouths.bl_idname, text="Edit an existing Rig", icon = 'EDITMODE_HLT')
+            #col.operator(ViewCenterOriginMouths.bl_idname, text="Edit an existing Rig", icon = 'EDITMODE_HLT')
 
         # Step 2: Draw Facial Features by each feature
         col = layout.column(align=True)
         col.label(text="2. Draw Features")
         row = layout.row(align=True)
-        #row.prop(scn.grease_pencil_face_rig_settings, "drawing_feature", expand=True)
-        row.scale_y = 1.2   
+        
+          
         col.label(text= "Draw Mouth Shapes")
         #col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
@@ -1058,7 +1131,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
-        col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
+        #col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
 #        
         # Step 4: Create Rig
         col = layout.column(align=True)
@@ -1077,6 +1150,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
 classes = (
     GreasePencilFaceRigSettings,
     FinishMouthShape,
+    SetUp,
     ViewCenterOriginMouths,
     ViewCenterOriginEyes,
     GP_PT_Face_Rig_Workflow_Panel,
@@ -1115,9 +1189,11 @@ def register():
     bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
     bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
-
-    
-    
+    bpy.types.Scene.gp_active_tab = EnumProperty(
+        items=(('CREATE', 'Create', 'Create Tab'), ('EDIT', 'Edit', ' Edit Tab'), ('TOOLS', 'Misc', 'Misc Tab')), options={'HIDDEN'})
+    bpy.types.Scene.gp_face_mode = EnumProperty(
+        items=(('MOUTH', 'Mouth', 'Mouth Mode'), ('EYES', 'Eyes', 'Eyes Mode'), ('NOSE', 'Nose', 'Nose Mode'), ('NONE', 'None', 'default')), options={'HIDDEN'})
+    bpy.types.Scene.has_setup_been_run = bpy.props.BoolProperty(name="Has SetUp Been Run", default=False)
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
     
 
@@ -1129,8 +1205,10 @@ def unregister():
     del bpy.types.Scene.finish_mouth_count
     del bpy.types.Scene.face_layers
     del bpy.types.Scene.grease_pencil_face_rig_settings
+    del bpy.types.Scene.gp_active_tab
     if 'get_bone_distance' in bpy.app.driver_namespace:
         del bpy.app.driver_namespace['get_bone_distance']
+    del bpy.types.Scene.has_setup_been_run
 
 
 if __name__ == "__main__":
