@@ -148,6 +148,38 @@ class SetUp(bpy.types.Operator):
         context.scene.has_setup_been_run = True
         
         return {'FINISHED'}
+    
+    
+
+         
+############################### EYES ########################
+class FinishEyeShape(bpy.types.Operator):
+    """Duplicate Eye drawings, scale, move them to correct locations on control board"""
+    bl_idname = "grease_pencil.finish_eye_shapes"
+    bl_label = "Finish Eye Shape"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        return
+    
+    
+############################# MOUTHS ########################
+
+
+class ViewCenterOriginEyes(bpy.types.Operator):
+    "Begin drawing and creation process for eye objects"
+    bl_idname = "view3d.center_origin_eyes"
+    bl_label = "Create Eye shapes"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        bpy.ops.view3d.view_axis(type='FRONT')
+        collection_name = "Temp Drawing Collection"
+        if collection_name not in bpy.data.collections:
+            collection = bpy.data.collections.new(collection_name)
+            context.scene.collection.children.link(collection)
+        else:
+            collection = bpy.data.collections[collection_name]
 
 class ViewCenterOriginMouths(bpy.types.Operator):
     "Center the view on the world origin, add a plane, create a Grease Pencil object with a correctly configured material, and enter draw mode"""
@@ -269,50 +301,12 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         return gp_obj.data.materials[0]
 
 
-class GPAddNewLayer(bpy.types.Operator):
-    """Add a new layer to the active Grease Pencil object"""
-    bl_idname = "grease_pencil.add_new_layer"
-    bl_label = "New Layer"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        gp_obj = context.active_object
-        if gp_obj and gp_obj.type == 'GREASEPENCIL':
-            new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
-            new_layer.name = "New GP Layer"  # Optional: set a name for the layer
-            new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
-            face_layer_count = context.scene.face_layers
-            face_layer_count += 1
-            self.report({'INFO'}, "New layer added and activated for drawing.")
-            return {'FINISHED'}
-        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
-        return {'CANCELLED'}
 
 
-class ViewCenterOriginEyes(bpy.types.Operator):
-    "Begin drawing and creation process for eye objects"
-    bl_idname = "view3d.center_origin_eyes"
-    bl_label = "Create Eye shapes"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self, context):
-        bpy.ops.view3d.view_axis(type='FRONT')
-        collection_name = "Temp Drawing Collection"
-        if collection_name not in bpy.data.collections:
-            collection = bpy.data.collections.new(collection_name)
-            context.scene.collection.children.link(collection)
-        else:
-            collection = bpy.data.collections[collection_name]
-         
 
-class FinishEyeShape(bpy.types.Operator):
-    """Duplicate Eye drawings, scale, move them to correct locations on control board"""
-    bl_idname = "grease_pencil.finish_eye_shapes"
-    bl_label = "Finish Eye Shape"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self, context):
-        return
+
+
+
 
 
 class FinishMouthShape(bpy.types.Operator):
@@ -452,7 +446,7 @@ class FinishMouthShape(bpy.types.Operator):
             else:
                 text_obj.scale = (.1, .1, .1)
             
-            # Link the text object & Duplicate to the new collection -- need way to check which collection is being used
+            # Link the text object & Duplicate to the new collection -- 
             if gp_duplicate.name not in new_collection.objects:
                 new_collection.objects.link(gp_duplicate)
             if text_obj.name not in new_collection.objects:
@@ -741,6 +735,30 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
 
         return {'FINISHED'}
+    
+    
+    
+############################### Face Creation Operators ########################
+
+class GPAddNewLayer(bpy.types.Operator):
+    """Add a new layer to the active Grease Pencil object"""
+    bl_idname = "grease_pencil.add_new_layer"
+    bl_label = "New Layer"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
+            new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
+            new_layer.name = "New GP Layer"  # Optional: set a name for the layer
+            new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
+            face_layer_count = context.scene.face_layers
+            face_layer_count += 1
+            self.report({'INFO'}, "New layer added and activated for drawing.")
+            return {'FINISHED'}
+        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+        return {'CANCELLED'}
+
 
 # Might have to break these into separate classes for each element
 class CreateRig(bpy.types.Operator):
