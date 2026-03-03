@@ -153,17 +153,21 @@ class SetUp(bpy.types.Operator):
 
          
 ############################### EYES ########################
+
+
 class FinishEyeShape(bpy.types.Operator):
     """Duplicate Eye drawings, scale, move them to correct locations on control board"""
     bl_idname = "grease_pencil.finish_eye_shapes"
     bl_label = "Finish Eye Shape"
     bl_options = {'REGISTER', 'UNDO'}
     
+    @classmethod
+    def poll(cls, context):
+        return context.scene.face_rig_settings.rig_mode == 'EYES'
+    
     def execute(self, context):
         return
     
-    
-############################# MOUTHS ########################
 
 
 class ViewCenterOriginEyes(bpy.types.Operator):
@@ -171,6 +175,51 @@ class ViewCenterOriginEyes(bpy.types.Operator):
     bl_idname = "view3d.center_origin_eyes"
     bl_label = "Create Eye shapes"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    #poll method to check if eye mode have been entered - for edit mode?
+    
+    def execute(self, context):
+        
+        context.scene.face_rig_settings.rig_mode = 'EYES'
+        bpy.ops.view3d.view_axis(type='FRONT')
+        collection_name = "Temp Drawing Collection"
+        if collection_name not in bpy.data.collections:
+            collection = bpy.data.collections.new(collection_name)
+            context.scene.collection.children.link(collection)
+        else:
+            collection = bpy.data.collections[collection_name]
+            
+            # Plane creation and setup
+        plane_name = "Target Eye Drawing Plane"
+        plane = bpy.data.objects.get(plane_name)
+        if not plane:
+            #is this the right location for the eye drawing plane? Maybe it should be moved up a bit?
+            bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=False, location=(0, 0, 0), rotation=(1.5708, 0, 0)) 
+            plane = context.active_object
+            plane.name = plane_name
+            plane.scale = (.2, .1, .1)
+            collection.objects.link(plane)  # Ensure it's in the right collection
+            context.collection.objects.unlink(plane)  # Unlink from default collection
+            #Need logic for mirroring the GP via modifiers rather than just drawing both sides
+            #Need logic for multiple eyes as well, currently only set up for one pair
+
+        self.delete_plane_faces(plane)
+        plane.display_type = 'WIRE'
+        self.zoom_to_object(plane)
+        self.make_plane_unselectable(plane)
+        return {'FINISHED'}
+            
+            
+            
+############################# NOSE ##########################
+
+class viewCenterOriginNose(bpy.types.Operator):
+    "Begin drawing and creation process for nose objects"
+    bl_idname = "view3d.center_origin_nose"
+    bl_label = "Create Nose shapes"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    #poll method to check if nose mode have been entered
     
     def execute(self, context):
         bpy.ops.view3d.view_axis(type='FRONT')
@@ -180,6 +229,14 @@ class ViewCenterOriginEyes(bpy.types.Operator):
             context.scene.collection.children.link(collection)
         else:
             collection = bpy.data.collections[collection_name]
+            
+        return {'FINISHED'}
+    
+    
+############################# MOUTHS ########################
+
+
+
 
 class ViewCenterOriginMouths(bpy.types.Operator):
     "Center the view on the world origin, add a plane, create a Grease Pencil object with a correctly configured material, and enter draw mode"""
@@ -187,10 +244,11 @@ class ViewCenterOriginMouths(bpy.types.Operator):
     bl_label = "Create Grease Pencil Mouth Object"
     bl_options = {'REGISTER', 'UNDO'}
     
-    # poll methoid to check if mouths is already set up
+    # poll method to check if mouths is already set up
 
     def execute(self, context):
-
+        
+        context.scene.face_rig_settings.rig_mode = 'MOUTHS'
         bpy.ops.view3d.view_axis(type='FRONT')
 
         # Collection handling -- Move these to set up
@@ -201,13 +259,10 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         else:
             collection = bpy.data.collections[collection_name]
             
-            
-        #Mode selection
-        # context.scene.face_rig_settings.rig_mode = 'NONE'
         
 
         # Plane creation and setup
-        plane_name = "Target Drawing Plane"
+        plane_name = "Target Face Drawing Plane"
         plane = bpy.data.objects.get(plane_name)
         if not plane:
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=False, location=(0, 0, 0), rotation=(1.5708, 0, 0))
@@ -1128,12 +1183,17 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
                 layout.separator()
                 row = layout.row(align=True)
                 row.scale_y = 1.2
-                row.operator(ViewCenterOriginMouths.bl_idname, text="Create Mouth Shape", icon = 'FILE_NEW')
+                row.operator(ViewCenterOriginEyes.bl_idname, text="Create Eye Shapes", icon = 'HIDE_OFF')
+                row = layout.row(align=True)
+                row.scale_y = 1.2
+                row.operator(ViewCenterOriginMouths.bl_idname, text="Create Mouth Shapes", icon = 'FILE_NEW')
+                layout.separator()
                 
-                 #col.operator(ViewCenterOriginEyes.bl_idname, text="View Eye Controllers", icon = 'HIDE_OFF')
-            #col.operator(ViewCenterOriginMouths.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
+                
+                
+            
             col.alert = False
-            #col.operator(ViewCenterOriginMouths.bl_idname, text="Edit an existing Rig", icon = 'EDITMODE_HLT')
+            
 
         # Step 2: Draw Facial Features by each feature
         col = layout.column(align=True)
@@ -1143,7 +1203,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
           
         col.label(text= "Draw Mouth Shapes")
         #col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
-        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
+        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTH':
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
             row = col.row()
             row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
@@ -1171,12 +1231,15 @@ classes = (
     SetUp,
     ViewCenterOriginMouths,
     ViewCenterOriginEyes,
+    viewCenterOriginNose,
     GP_PT_Face_Rig_Workflow_Panel,
     GPAddNewLayer,
     CreateRig,
     GPDoneDrawingMouth,
     
 )
+
+
 def update_GP_tab():
     try:
         bpy.utils.unregister_class(GP_PT_Face_Rig_Workflow_Panel)
