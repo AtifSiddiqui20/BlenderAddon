@@ -163,7 +163,8 @@ class FinishEyeShape(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        return context.scene.face_rig_settings.rig_mode == 'EYES'
+        return context.scene.gp_face_mode == 'EYES'
+    
     
     def execute(self, context):
         return
@@ -180,7 +181,7 @@ class ViewCenterOriginEyes(bpy.types.Operator):
     
     def execute(self, context):
         
-        context.scene.face_rig_settings.rig_mode = 'EYES'
+        context.scene.gp_face_mode = 'EYES'
         bpy.ops.view3d.view_axis(type='FRONT')
         collection_name = "Temp Drawing Collection"
         if collection_name not in bpy.data.collections:
@@ -203,11 +204,51 @@ class ViewCenterOriginEyes(bpy.types.Operator):
             #Need logic for mirroring the GP via modifiers rather than just drawing both sides
             #Need logic for multiple eyes as well, currently only set up for one pair
 
-        self.delete_plane_faces(plane)
+        self.delete_plane_faces_eyes(plane)
         plane.display_type = 'WIRE'
-        self.zoom_to_object(plane)
-        self.make_plane_unselectable(plane)
+        self.zoom_to_object_eyes(plane)
+        self.make_plane_unselectable_eyes(plane)
         return {'FINISHED'}
+    
+
+    
+    def delete_plane_faces_eyes(self, obj):
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.delete(type='ONLY_FACE')
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    def zoom_to_object_eyes(self, obj):
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        for area in bpy.context.screen.areas:
+            if area.type == 'VIEW_3D':
+                for region in area.regions:
+                    if region.type == 'WINDOW':
+                        with bpy.context.temp_override(area=area, region=region, space_data=area.spaces.active):
+                            bpy.ops.view3d.view_axis(type = 'FRONT')
+                            bpy.ops.view3d.view_selected(use_all_regions=False)
+                        
+                            break
+        obj.hide_select = True
+
+    def make_plane_unselectable_eyes(self, obj):
+        # Get the object by name and check if it is not None
+        if bpy.context.view_layer.objects.get(obj.name) is not None:
+            obj.hide_select = True
+            obj.hide_render = True
+
+    def create_default_gp_material(self, gp_obj):
+        # Create a new material
+        
+        if not gp_obj.data.materials:
+            mat = bpy.data.materials.new(name="GP Default Material")
+            bpy.data.materials.create_gpencil_data(mat)
+            mat.grease_pencil.color = (0.4, 0.2, 0.8, 1.0)
+            gp_obj.data.materials.append(mat)
+        bpy.ops.grease_pencil.paintmode_toggle()
+        return gp_obj.data.materials[0]
             
             
             
@@ -248,7 +289,7 @@ class ViewCenterOriginMouths(bpy.types.Operator):
 
     def execute(self, context):
         
-        context.scene.face_rig_settings.rig_mode = 'MOUTHS'
+        context.scene.gp_face_mode = 'MOUTHS'
         bpy.ops.view3d.view_axis(type='FRONT')
 
         # Collection handling -- Move these to set up
@@ -1203,7 +1244,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
           
         col.label(text= "Draw Mouth Shapes")
         #col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
-        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTH':
+        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTHS':
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
             row = col.row()
             row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
@@ -1273,7 +1314,7 @@ def register():
     bpy.types.Scene.gp_active_tab = EnumProperty(
         items=(('CREATE', 'Create', 'Create Tab'), ('EDIT', 'Edit', ' Edit Tab'), ('TOOLS', 'Misc', 'Misc Tab')), options={'HIDDEN'})
     bpy.types.Scene.gp_face_mode = EnumProperty(
-        items=(('MOUTH', 'Mouth', 'Mouth Mode'), ('EYES', 'Eyes', 'Eyes Mode'), ('NOSE', 'Nose', 'Nose Mode'), ('NONE', 'None', 'default')), options={'HIDDEN'})
+        items=(('MOUTHS', 'Mouths', 'Mouths Mode'), ('EYES', 'Eyes', 'Eyes Mode'), ('NOSE', 'Nose', 'Nose Mode'), ('NONE', 'None', 'default')), options={'HIDDEN'})
     bpy.types.Scene.has_setup_been_run = bpy.props.BoolProperty(name="Has SetUp Been Run", default=False)
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
     
