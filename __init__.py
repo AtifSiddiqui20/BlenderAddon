@@ -45,6 +45,9 @@ bl_info = {
 #on - likely use IDs for each
 # Mirror modifier/ button for eyes? Needs to keep origin in mind!
 
+#Adding items during creation to local view?
+# Add a button to show control board by itself?
+
 #Tips/things to remember: 
 # Always use transform space
 # It is the Z location, not Y locaiton.
@@ -93,7 +96,7 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         name = "Rig Mode",
         description = "Currrent Grease Pencil Face Shape mode",
         items= [('NONE', "None", ""),
-            ('MOUTH', "Mouth", ""),
+            ('MOUTHS', "Mouth", ""),
             ('EYES', "Eyes", ""),
             ('NOSE', "Nose", "")
         ],
@@ -154,6 +157,18 @@ class SetUp(bpy.types.Operator):
          
 ############################### EYES ########################
 
+# Notes for eyes:
+##General Notes:
+#Number of eyes -  
+#Also will need to arrange eyes in a way based on number of eyes
+# Mirroring - ideally would like to just draw one eye and have it mirror to the other - will ikley need scaling manually moving into position for the second eye, but can use a mirror modifier to mirror the strokes. Will need to make sure the origin is in the right place for this.
+##Eye Shapes:
+#Eye shapes will operate in a staged process, so eye1 must be completed before eye2, etc. Will need to add some logic to check for this. 
+# will use the same methodology as mouth shapes, but will we need to have each eye use different drivers? will allow for multi shape eye rigs, 
+# but will require more set up. How would this work for a large amount of eyes?
+# need to follow structure of eye workflow
+
+
 
 class FinishEyeShape(bpy.types.Operator):
     """Duplicate Eye drawings, scale, move them to correct locations on control board"""
@@ -169,6 +184,7 @@ class FinishEyeShape(bpy.types.Operator):
     def execute(self, context):
         return
     
+
 
 
 class ViewCenterOriginEyes(bpy.types.Operator):
@@ -190,15 +206,15 @@ class ViewCenterOriginEyes(bpy.types.Operator):
         else:
             collection = bpy.data.collections[collection_name]
             
-            # Plane creation and setup
+            # Plane creation and setup -- offset from center 
         plane_name = "Target Eye Drawing Plane"
         plane = bpy.data.objects.get(plane_name)
         if not plane:
             #is this the right location for the eye drawing plane? Maybe it should be moved up a bit?
-            bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=False, location=(0, 0, 0), rotation=(1.5708, 0, 0)) 
+            bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=False, location=(.1, 0, 0.2), rotation=(1.5708, 0, 0)) 
             plane = context.active_object
             plane.name = plane_name
-            plane.scale = (.2, .1, .1)
+            plane.scale = (.1, .1, .1)
             collection.objects.link(plane)  # Ensure it's in the right collection
             context.collection.objects.unlink(plane)  # Unlink from default collection
             #Need logic for mirroring the GP via modifiers rather than just drawing both sides
@@ -208,6 +224,43 @@ class ViewCenterOriginEyes(bpy.types.Operator):
         plane.display_type = 'WIRE'
         self.zoom_to_object_eyes(plane)
         self.make_plane_unselectable_eyes(plane)
+        
+        gp_name = "GP Temp Eye Object"
+        if gp_name not in bpy.data.objects:
+            gp_data = bpy.data.grease_pencils.new(gp_name)
+            gp_obj = bpy.data.objects.new(gp_name, gp_data)
+            collection.objects.link(gp_obj)
+        else:
+            gp_obj = bpy.data.objects[gp_name]
+            gp_data = gp_obj.data
+        
+        gp_obj.location = (.1, 0, .2)
+        context.view_layer.objects.active = gp_obj
+        gp_obj.select_set(True)
+        bpy.ops.object.mode_set(mode = 'EDIT')
+        # How to access tool menu--
+        bpy.context.scene.tool_settings.gpencil_sculpt.use_scale_thickness = True
+        bpy.ops.object.mode_set(mode='PAINT_GREASE_PENCIL')
+        new_layer = gp_obj.data.layers.new(name="New GP Layer", set_active=True)
+        new_layer.name = "New GP Layer"  # Optional: set a name for the layer
+        new_layer.frames.new(frame_number=1)  # Ensure there's a frame to draw on
+
+        # Material setup
+        if "Default Face Material" in bpy.data.materials.keys():
+            gp_mat = bpy.data.materials["Default Face Material"]
+            bpy.data.materials.create_gpencil_data(gp_mat)
+            
+            
+        else:
+            gp_mat = bpy.data.materials.new("Default Face Material")
+            bpy.data.materials.create_gpencil_data(gp_mat)
+            
+              
+        gp_mat.use_nodes = False 
+        gp_data.materials.append(gp_mat)
+        gp_mat.grease_pencil.color = (0, 0, 0, 1)    
+        
+        
         return {'FINISHED'}
     
 
@@ -249,6 +302,48 @@ class ViewCenterOriginEyes(bpy.types.Operator):
             gp_obj.data.materials.append(mat)
         bpy.ops.grease_pencil.paintmode_toggle()
         return gp_obj.data.materials[0]
+    
+class finishEyeShape(bpy.types.Operator):
+    """Duplicate Eye drawings, scale, move them to correct locations on control board"""
+    bl_idname = "grease_pencil.finish_eye_shapes"
+    bl_label = "Finish Eye Shape"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        return context.scene.gp_face_mode == 'EYES'
+    
+    
+    def is_layer_empty(self, layer):
+        """Check if a Grease Pencil layer is empty"""
+        for GPencilframe in layer.frames:
+            if GPencilframe.items:
+                return False
+        return True
+    
+    def execute(self, context):
+        eye_name = bpy.context.scene.grease_pencil_face_rig_settings.Eye_shape_name
+        if not eye_name:
+            self.report({'WARNING'}, "You should enter a name for the eye shape")
+            return {'CANCELLED'}
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
+            
+            all_empty = True
+            for layer in gp_obj.data.layers:
+                if not layer.hide and not self.is_layer_empty(layer):
+                    all_empty = False
+                    break
+
+            if all_empty:
+                self.report({'WARNING'}, "No shapes drawn in visible layers")
+                return {'CANCELLED'}
+            for layer in gp_obj.data.layers:
+                if not layer.hide:
+                    layer.name = eye_name
+                    
+            
+        return {'FINISHED'}
             
             
             
@@ -1241,17 +1336,33 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         col.label(text="2. Draw Features")
         row = layout.row(align=True)
         
-          
-        col.label(text= "Draw Mouth Shapes")
-        #col.operator("grease_pencil.draw_eyes", text="Draw Eyes")
+        layout.label(text=f"State: {scn.gp_face_mode}")
+        layout.label(text=f"Mode: {context.mode}")
+        
+        ## Mouths Create UI
+        
+        
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTHS':
+            col.label(text= "Draw Mouth Shapes")
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
             row = col.row()
             row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
         #col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
-#        
+        # Eyes Create UI        
+
+        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'EYES':
+            col.label(text= "Draw Eye Shapes")
+            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            row = col.row()
+            layout.prop(context.scene, "number_of_eyes")
+            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            row = col.row()
+            row.prop(context.scene.grease_pencil_face_rig_settings, "eye_shape_name")
+            
+            #col.operator(FinishEyeShape.bl_idname, text="Finish Eye Shape")
+            #col.operator(GPDoneDrawingEyes.bl_idname, text="Done")
         # Step 4: Create Rig
         col = layout.column(align=True)
         col.label(text="4. Finalize")
@@ -1308,6 +1419,7 @@ def register():
         except: 
             pass
     update_GP_tab()
+    #Do we need edit/object modes for each mouth part? Eyes_edit for example
     bpy.types.Scene.grease_pencil_face_rig_settings = bpy.props.PointerProperty(type=GreasePencilFaceRigSettings)
     bpy.types.Scene.finish_mouth_count = bpy.props.IntProperty(name="Finish Mouth Count", default=0)
     bpy.types.Scene.face_layers = bpy.props.IntProperty(name="Face Layer Count", default=1)
@@ -1315,6 +1427,7 @@ def register():
         items=(('CREATE', 'Create', 'Create Tab'), ('EDIT', 'Edit', ' Edit Tab'), ('TOOLS', 'Misc', 'Misc Tab')), options={'HIDDEN'})
     bpy.types.Scene.gp_face_mode = EnumProperty(
         items=(('MOUTHS', 'Mouths', 'Mouths Mode'), ('EYES', 'Eyes', 'Eyes Mode'), ('NOSE', 'Nose', 'Nose Mode'), ('NONE', 'None', 'default')), options={'HIDDEN'})
+    bpy.types.Scene.number_of_eyes = bpy.props.IntProperty(name="Number of Eyes", default=2, min=1, max = 10, description="Number of eyes to generate")
     bpy.types.Scene.has_setup_been_run = bpy.props.BoolProperty(name="Has SetUp Been Run", default=False)
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
     
