@@ -9,9 +9,6 @@ bl_info = {
 }
 
 # Current Issues for mouths: 
-# Lattice set up not implemented
-
-
 # Correct Scale needed - Hopefully solved
 
 # Current Issues for Eyes
@@ -24,20 +21,18 @@ bl_info = {
 # via the hidden bones, that means they are shinkrwrapped to the plane
 # show hidden bones button? 
 # Bone for mouth control/canvas
-# Widgets 
-# Increment frame number to enable onion skinning
+
 
 # and the Gp objects need to move too 
 # Scale thickness needs to be ON for all grease pencil objects X
 # Use Lights Button
-# Hooks for lattice setup? Lattice needs vertex groups
+# Lattice set up not implemented fully with hooks and bones and cast groups - lattice needs vertex groups?
 
 
-# Adding lablels to controla board rig (bones that take the shape
-#of text. Missing eye, eyebrows, and nose creation. Missing lattice creation and bone parenting
+
 #appending to rigs, making the interface use drivers for x and y movement, allowing it to 
 # snap to shapes rather than freely move about (only for mouth and eye shapes)
-# Eyebrow Sliders/controls 
+
 # Lattice creation with bone hooks for every part
 # Add Delete Rig button for my collection
 # add custom props to make sure only face rigs are edited/created
@@ -52,6 +47,17 @@ bl_info = {
 # Always use transform space
 # It is the Z location, not Y locaiton.
 # apply scaling and rotation to custom bone shape meshes
+
+
+#missing features:
+
+#Noses
+#Eyebrows
+# Eyebrow Sliders/controls 
+# Widgets 
+# Increment frame number to enable onion skinning
+
+
 
 import bpy
 import bmesh
@@ -168,6 +174,22 @@ class SetUp(bpy.types.Operator):
 # but will require more set up. How would this work for a large amount of eyes?
 # need to follow structure of eye workflow
 
+#Layer set up-
+
+#Effects
+#pupil
+#Iris
+#Eye lids/base shape - think of the eye "outline"
+#Sclera
+
+
+class EyeItem(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(default="Eye")
+    gp_object: bpy.props.PointerProperty(type=bpy.types.Object)
+    mirror: bpy.props.BoolProperty(default=True)
+    active_layer: bpy.props.StringProperty(default="sclera")
+    
+
 
 
 class FinishEyeShape(bpy.types.Operator):
@@ -183,6 +205,8 @@ class FinishEyeShape(bpy.types.Operator):
     
     def execute(self, context):
         return
+    
+
     
 
 
@@ -302,6 +326,27 @@ class ViewCenterOriginEyes(bpy.types.Operator):
             gp_obj.data.materials.append(mat)
         bpy.ops.grease_pencil.paintmode_toggle()
         return gp_obj.data.materials[0]
+    
+    
+class MY_OT_set_eye_layer(bpy.types.Operator):
+    bl_idname = "my.set_eye_layer"
+    bl_label = "Set Eye Layer"
+    
+    layer_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        gp = context.scene.active_eye_object  # your tracked GP object
+        if not gp or gp.type != 'GPENCIL':
+            return {'CANCELLED'}
+
+        for layer in gp.data.layers:
+            layer.lock = (layer.info != self.layer_name)  # lock all but target
+            layer.hide = False  # keep all visible
+
+        # Set active layer
+        gp.data.layers.active = gp.data.layers.get(self.layer_name)
+        return {'FINISHED'}
+    
     
 class finishEyeShape(bpy.types.Operator):
     """Duplicate Eye drawings, scale, move them to correct locations on control board"""
@@ -951,6 +996,78 @@ class GPAddNewLayer(bpy.types.Operator):
         return {'CANCELLED'}
 
 
+
+#Mouth lattice helper functions:
+def build_mouth_hook_map():
+    
+    def get_range(u_range, v_range, w_range):
+        return [
+            get_lattice_index(u, v, w)
+            for w in w_range
+            for v in v_range
+            for u in u_range
+        ]
+    
+    hook_map = {
+        # Corners
+        "Mouth_Corner_R": get_range(
+            range(0, 3),   # left half U
+            range(0, 2),   # all V
+            range(3, 6)    
+        ),
+        "Mouth_Corner_L": get_range(
+            range(3, 6),   # right half U
+            range(0, 2),
+            range(3, 6)    # top half W
+        ),
+
+        # Upper lip (W 3-5, the TOP half)
+        "Mouth_Top_R": get_range(
+            range(0, 2),
+            range(0, 2),
+            range(3, 6)    
+        ),
+        "Mouth_Top_C": get_range(
+            range(2, 4),
+            range(0, 2),
+            range(3, 6)
+        ),
+        "Mouth_Top_L": get_range(
+            range(4, 6),
+            range(0, 2),
+            range(3, 6)
+        ),
+
+        # Lower lip (W 0-2, the BOTTOM half)
+        "Mouth_Bot_R": get_range(
+            range(0, 2),
+            range(0, 2),
+            range(0, 3)    
+        ),
+        "Mouth_Bot_C": get_range(
+            range(2, 4),
+            range(0, 2),
+            range(0, 3)
+        ),
+        "Mouth_Bot_L": get_range(
+            range(4, 6),
+            range(0, 2),
+            range(0, 3)
+        ),
+
+        # Depth — back V layer, unchanged
+        "Mouth_Depth": get_range(
+            range(0, 6),
+            range(1, 2),
+            range(0, 6)
+        ),
+    }
+    return hook_map
+    
+def get_lattice_index(u, v, w, res_u=6, res_v=2, res_w=6):
+    return u + (v * res_u) + (w * res_u * res_v)
+
+
 # Might have to break these into separate classes for each element
 class CreateRig(bpy.types.Operator):
     """Create a rig with two bones: one named after the vertex group and the other named root"""
@@ -971,6 +1088,7 @@ class CreateRig(bpy.types.Operator):
         
         
 ################################ Mouth Rig Creation ########################################
+
         # Get the active object
         gp_obj = context.active_object
         if gp_obj and gp_obj.type == 'GREASEPENCIL':
@@ -1258,19 +1376,69 @@ class CreateRig(bpy.types.Operator):
         if lattice:
             lattice_constraint = lattice.constraints.new(type =  'CHILD_OF')
             lattice_constraint.target = bpy.data.objects["GP_Rig"]
-            lattice_constraint.subtarget = "GP Mouth Bone"
+            #lattice_constraint.subtarget = "GP Mouth Bone" uneeded for some reason
         # Create bones for lattice and assign vertex groups to vertices to mouth bone - set to linear 
+            hook_map = build_mouth_hook_map()
+            bpy.context.view_layer.objects.active = armature
+            bpy.ops.object.mode_set(mode='EDIT')
+            
+            edit_bones = armature.data.edit_bones
+            
+            bone_positions = {
+            
+                "Mouth_Top_L":     ((.08, 0, .04), (.08, 0, 0.02)),
+                "Mouth_Top_C":     ((0, 0, .04),    (0, 0, 0.02)),
+                "Mouth_Top_R":     ((-.08, 0, .04),  (-.08, 0, 0.02)),
+                "Mouth_Bot_L":     ((.08, 0, -.02), (.08, 0, -0.04)),
+                "Mouth_Bot_C":     ((0, 0, -.02),    (0, 0, -0.04)),
+                "Mouth_Bot_R":     ((-.08, 0, -.02),  (-.08, 0, -0.04)),
+                #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
+            
+            }
+
+            for bone_name, (head, tail) in bone_positions.items():
+                if bone_name not in edit_bones:
+                    bone = edit_bones.new(bone_name)
+                    bone.head = head
+                    bone.tail = tail
+                    bone.parent = edit_bones.get("GP Mouth Bone")  # parent to existing mouth bone
+                    
+
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            # --- Step 3: Add hook modifiers to the lattice per vertex group ---
+            bpy.context.view_layer.objects.active = lattice
+
+            for bone_name, vert_indices in hook_map.items():
+                
+                # Create a vertex group for these vertices
+                vg = lattice.vertex_groups.new(name=bone_name)
+                vg.add(vert_indices, 1.0, 'REPLACE')
+
+                # Add hook modifier pointing to the armature bone
+                hook_mod = lattice.modifiers.new(name=f"Hook_{bone_name}", type='HOOK')
+                hook_mod.object = armature
+                hook_mod.subtarget = bone_name          # the specific bone
+                hook_mod.vertex_group = bone_name       # only affects these verts
+
+            # --- Step 4: Set lattice interpolation to linear ---
+            lattice.data.interpolation_type_u = 'KEY_LINEAR'
+            lattice.data.interpolation_type_v = 'KEY_LINEAR'
+            lattice.data.interpolation_type_w = 'KEY_LINEAR'
+            
         
         
         
         
         
         
-        
-        # Add bones to control hooks 
+            # Add bones to control hooks 
             # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
 
-        # Create Mouth Face Rig Control Panel
+            # Create Mouth Face Rig Control Panel
+            
+
+
 
             
             self.report({'INFO'}, "Rig created with two bones.")
@@ -1279,6 +1447,7 @@ class CreateRig(bpy.types.Operator):
 
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
+    
     
 
 
@@ -1299,10 +1468,16 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     
 
     def draw(self, context):
+        
+        
+        
         scn = context.scene
         layout = self.layout
+        box = layout.box()
+        box.label(text=f"State: {scn.gp_face_mode}")
+        box.label(text=f"Mode: {context.mode}")
         obj = context.object
-
+        
         # Step 1: Create or Edit Rig
         row = layout.row(align=True)
         row.prop(scn, "gp_active_tab", expand=True)
@@ -1336,12 +1511,34 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         col.label(text="2. Draw Features")
         row = layout.row(align=True)
         
-        layout.label(text=f"State: {scn.gp_face_mode}")
-        layout.label(text=f"Mode: {context.mode}")
+        
+        
+       
+        # Eyes Create UI        
+        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'EYES':
+            col.label(text= "Draw Eye Shapes")
+            layout.prop(context.scene, "number_of_eyes")
+            layout.label(text="Coming soon!!!")   
+            steps = ["sclera", "iris", "pupil", "eyelid_upper", "eyelid_lower"]
+
+            # active_eye = scn.eye_collection[scn.active_eye_index]
+
+            # for step in steps:
+            #     row = layout.row()
+            #     is_active = (active_eye.active_layer == step)  # ← from eye item, not scene
+            #     row.enabled = not is_active
+            #     op = row.operator("my.set_eye_layer", text=step.replace("_", " ").title())
+            #     op.layer_name = step
+            
+            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            row = col.row()
+            row.prop(context.scene.grease_pencil_face_rig_settings, "eye_shape_name")
+            
+            #col.operator(FinishEyeShape.bl_idname, text="Finish Eye Shape")
+            #col.operator(GPDoneDrawingEyes.bl_idname, text="Done")
+            
         
         ## Mouths Create UI
-        
-        
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTHS':
             col.label(text= "Draw Mouth Shapes")
             col.operator(GPAddNewLayer.bl_idname, text="New Layer")
@@ -1350,19 +1547,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
         #col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
-        # Eyes Create UI        
-
-        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'EYES':
-            col.label(text= "Draw Eye Shapes")
-            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            row = col.row()
-            layout.prop(context.scene, "number_of_eyes")
-            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            row = col.row()
-            row.prop(context.scene.grease_pencil_face_rig_settings, "eye_shape_name")
             
-            #col.operator(FinishEyeShape.bl_idname, text="Finish Eye Shape")
-            #col.operator(GPDoneDrawingEyes.bl_idname, text="Done")
         # Step 4: Create Rig
         col = layout.column(align=True)
         col.label(text="4. Finalize")
@@ -1388,6 +1573,9 @@ classes = (
     GPAddNewLayer,
     CreateRig,
     GPDoneDrawingMouth,
+    EyeItem,
+    MY_OT_set_eye_layer,
+    finishEyeShape
     
 )
 
@@ -1430,6 +1618,8 @@ def register():
     bpy.types.Scene.number_of_eyes = bpy.props.IntProperty(name="Number of Eyes", default=2, min=1, max = 10, description="Number of eyes to generate")
     bpy.types.Scene.has_setup_been_run = bpy.props.BoolProperty(name="Has SetUp Been Run", default=False)
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
+    bpy.types.Scene.eye_collection = bpy.props.CollectionProperty(type=EyeItem)
+    bpy.types.Scene.active_eye_index = bpy.props.IntProperty(default=0)
     
 
 
