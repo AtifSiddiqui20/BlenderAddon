@@ -1386,12 +1386,12 @@ class CreateRig(bpy.types.Operator):
             
             bone_positions = {
             
-                "Mouth_Top_L":     ((.08, 0, .04), (.08, 0, 0.02)),
-                "Mouth_Top_C":     ((0, 0, .04),    (0, 0, 0.02)),
-                "Mouth_Top_R":     ((-.08, 0, .04),  (-.08, 0, 0.02)),
-                "Mouth_Bot_L":     ((.08, 0, -.02), (.08, 0, -0.04)),
-                "Mouth_Bot_C":     ((0, 0, -.02),    (0, 0, -0.04)),
-                "Mouth_Bot_R":     ((-.08, 0, -.02),  (-.08, 0, -0.04)),
+                "Mouth_Top_L":     ((.08, 0, .02), (.08, 0, 0.04)),
+                "Mouth_Top_C":     ((0, 0, .02),    (0, 0, 0.04)),
+                "Mouth_Top_R":     ((-.08, 0, .02),  (-.08, 0, 0.04)),
+                "Mouth_Bot_L":     ((.08, 0, -.04), (.08, 0, -0.02)),
+                "Mouth_Bot_C":     ((0, 0, -.04),    (0, 0, -0.02)),
+                "Mouth_Bot_R":     ((-.08, 0, -.04),  (-.08, 0, -0.02)),
                 #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
             
             }
@@ -1425,6 +1425,8 @@ class CreateRig(bpy.types.Operator):
             lattice.data.interpolation_type_u = 'KEY_LINEAR'
             lattice.data.interpolation_type_v = 'KEY_LINEAR'
             lattice.data.interpolation_type_w = 'KEY_LINEAR'
+            
+            # --- Step 5: Add a modifier to the GP object to scale thickness corecctly using a driven value
             
         
         
