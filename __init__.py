@@ -1068,6 +1068,172 @@ def get_lattice_index(u, v, w, res_u=6, res_v=2, res_w=6):
     return u + (v * res_u) + (w * res_u * res_v)
 
 
+def create_bone_shape(name, shape_type='CIRCLE', scale=(0.1, 0.1, .1), rotation=(0, 0, 0), delete_faces=True):
+    #Bone Head will be at the CENTER of the mesh - so the center of shapes should be at bottom of the mesh or the bone head should be offset.
+    # Create a new mesh object to use as the bone shape
+    if shape_type == 'CIRCLE':
+        bpy.ops.mesh.primitive_circle_add(vertices=32, radius=0.5)
+    elif shape_type == 'SQUARE':
+        bpy.ops.mesh.primitive_plane_add(size=1)
+    elif shape_type == 'ARROW':
+        bpy.ops.mesh.primitive_cone_add(vertices=4, radius1=0.3, depth=0.6)
+        bpy.context.active_object.rotation_euler = (0, 0, 0)
+        bpy.ops.object.transform_apply(rotation=True)
+
+    shape_obj = bpy.context.active_object
+    shape_obj.name = name
+
+    # Apply transformations
+    shape_obj.scale = scale
+    shape_obj.rotation_euler = rotation
+    bpy.ops.object.transform_apply(scale=True, rotation=True, location=False)
+    #Delete only faces
+    if delete_faces:
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.delete(type='ONLY_FACE')
+        bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # Move to a hidden collection so it doesnt clutter the scene
+    shape_collection = bpy.data.collections.get("BoneShapes")
+    if not shape_collection:
+        shape_collection = bpy.data.collections.new("BoneShapes")
+        bpy.context.scene.collection.children.link(shape_collection)
+    
+    # Unlink from current collection and move to BoneShapes and add to Temp Drawing collection
+    for col in shape_obj.users_collection:
+        col.objects.unlink(shape_obj)
+        if col.name == "Temp Drawing Collection":
+            col.children.link(shape_collection)
+    shape_collection.objects.link(shape_obj)
+    
+    
+    
+    
+
+    bpy.context.scene.view_layers[0].layer_collection\
+        .children["BoneShapes"].exclude = True
+
+    return shape_obj
+
+def create_bone_label(text, location):
+    bpy.ops.object.text_add(location=location)
+    text_obj = bpy.context.active_object
+    text_obj.data.body = text
+    text_obj.data.size = 0.1
+    text_obj.data.align_x = 'CENTER'
+    text_obj.name = f"Label_{text}"
+    text_obj.rotation_euler = (1.5707, 0, 0)  
+
+    # Move to BoneShapes collection
+    shape_collection = bpy.data.collections.get("BoneShapes")
+    for col in text_obj.users_collection:
+        col.objects.unlink(text_obj)
+    shape_collection.objects.link(text_obj)
+
+    return text_obj
+
+def setup_control_board_shapes(armature):
+    bpy.context.view_layer.objects.active = armature
+    bpy.ops.object.mode_set(mode='POSE')
+
+    # Define bones and their shapes/labels
+    control_bones = {
+        
+        "Face_Main_Control_Board": {
+            "shape": "SQUARE",
+            "label": "Main",
+            "color": (0.3, 0.8, 0.3, 1),  # green
+            "location": (.5, 0, .24),
+            "scale": (0.3, 0.5, .3),
+            "rotation": (0, 0, 0),  
+        },
+        "Face_Mouth_Canvas": {
+            "shape": "SQUARE",
+            "label": "Mouth Canvas",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "location": (.5, 0, .24),
+            "scale": (0.29, 0.126, .3),
+            "rotation": (0, 0, 0),
+        },
+        "Face_Mouth_Position_Control": {
+            "shape": "SQUARE",
+            "label": "Mouth",
+            "color": (1, 0.3, 0.3, 1),
+            "location": (.5, 0, .24),
+            "scale": (0.06, 0.04, .03),
+            "rotation": (0, 0, 0),
+            "delete_faces": False,
+        },
+        
+        "Hook_Mouth_Top_L": {
+            "shape": "ARROW",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "scale": (0.03, 0.03, .03),
+        },
+        "Hook_Mouth_Top_R": {
+            "shape": "ARROW",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "scale": (0.03, 0.03, .03),
+        },
+        "Hook_Mouth_Top_C": {
+            "shape": "ARROW",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "scale": (0.03, 0.03, .03),
+        },
+        "Hook_Mouth_Bot_L": {
+            "shape": "ARROW",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "scale": (0.03, 0.03, .03),
+        },
+        "Hook_Mouth_Bot_R": {
+            "shape": "ARROW",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "scale": (0.03, 0.03, .03),
+        },
+        "Hook_Mouth_Bot_C": {
+            "shape": "ARROW",
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "scale": (0.03, 0.03, .03),
+        },
+        
+    }
+
+    for bone_name, settings in control_bones.items():
+        pose_bone = armature.pose.bones.get(bone_name)
+        if not pose_bone:
+            continue
+
+        # Create and assign custom shape
+        shape_obj = create_bone_shape(
+            f"Shape_{bone_name}", 
+            settings["shape"],
+            settings.get("scale", (0.1, 0.1, 0.1)),
+            settings.get("rotation", (0, 0, 0)),
+            settings.get("delete_faces", True)
+        )
+        pose_bone.custom_shape = shape_obj
+        pose_bone.use_custom_shape_bone_size = False  
+
+        # Create label positioned slightly above the bone
+        label_loc = (
+            pose_bone.head.x,
+            pose_bone.head.y,
+            pose_bone.head.z + 0.15
+        )
+        if "label" in settings:
+            label_obj = create_bone_label(settings["label"], label_loc)
+        else:
+            continue
+        
+
+        # Set bone color group
+        pose_bone.color.palette = 'CUSTOM'
+        pose_bone.color.custom.normal = settings["color"][:3]
+        
+            
+
+
 # Might have to break these into separate classes for each element
 class CreateRig(bpy.types.Operator):
     """Create a rig with two bones: one named after the vertex group and the other named root"""
@@ -1149,7 +1315,7 @@ class CreateRig(bpy.types.Operator):
         named_bone.tail = (0, 0, 0.05)
         named_bone.parent = root_bone
         named_bone.use_connect = False
-        #hid_mouth_coll.assign(named_bone)
+        hid_mouth_coll.assign(named_bone)
         
         # Retrieve control board and puck locations
         collection_name = "Mouth Rig Control Board Objects"
@@ -1403,7 +1569,7 @@ class CreateRig(bpy.types.Operator):
                     bone.head = head
                     bone.tail = tail
                     bone.parent = edit_bones.get("GP Mouth Bone")  # parent to existing mouth bone
-                    #hid_mouth_coll.assign(bone)
+                    hid_mouth_coll.assign(bone)
                     
 
             bpy.ops.object.mode_set(mode='OBJECT')
@@ -1462,20 +1628,39 @@ class CreateRig(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.context.view_layer.objects.active = armature
             bpy.ops.object.mode_set(mode='EDIT')
+            #Main control Board
             main_control_bone = edit_bones.new("Face_Main_Control_Board")
-            main_control_bone.head = (1.6, 0, .2) 
-            main_control_bone.tail = (1.6, 0, 1.2)
+            main_control_bone.head = (.5, 0, .1)
+            main_control_bone.tail = (.5, 0, .3)
             main_control_bone.parent = edit_bones.get("GP Face Rig Root")
             main_control_bone.use_connect = False
             mouth_coll.assign(main_control_bone)
+            
+            #Canvas bone
+            mouth_position_canvas_bone = edit_bones.new("Face_Mouth_Canvas")
+            mouth_position_canvas_bone.head = (.5, 0, -.08)
+            mouth_position_canvas_bone.tail = (.5, 0, 0.15) 
+            mouth_position_canvas_bone.parent = main_control_bone
+            mouth_coll.assign(mouth_position_canvas_bone)
+           
+           
+            #Mouth position controller
             mouth_position_control_bone = edit_bones.new("Face_Mouth_Position_Control")
-            mouth_position_control_bone.head = (1.6, 0, .2)
-            mouth_position_control_bone.tail = (1.6, 0, 1)
-            mouth_position_control_bone.parent = main_control_bone
+            mouth_position_control_bone.head = (.5, 0, -.08)
+            mouth_position_control_bone.tail = (.5, 0, 0) 
+            mouth_position_control_bone.parent = mouth_position_canvas_bone
             mouth_position_control_bone.use_connect = False
             mouth_coll.assign(mouth_position_control_bone)
-             
             
+            #Mouth Label Bone
+            mouth_label_bone = edit_bones.new("Label_Mouth_Position_Control")
+            mouth_label_bone.head = (.5, 0, -.08)
+            mouth_label_bone.tail = (.5, 0, 0)
+            mouth_label_bone.parent = mouth_position_control_bone
+            mouth_coll.assign(mouth_label_bone)
+            
+            
+
             bpy.ops.object.mode_set(mode='POSE')
             mouth_pose_bone = armature.pose.bones.get("GP Mouth Bone")
             copy_transform = mouth_pose_bone.constraints.new('COPY_TRANSFORMS')
@@ -1487,31 +1672,31 @@ class CreateRig(bpy.types.Operator):
             
             control_hook_bone_positions = {
             
-                "Mouth_Top_L":     ((1.65, 0, .25), (1.65, 0, 1.25)),
-                "Mouth_Top_C":     ((0, 0, .02),    (0, 0, 0.04)),
-                "Mouth_Top_R":     ((-.08, 0, .02),  (-.08, 0, 0.04)),
-                "Mouth_Bot_L":     ((.08, 0, -.04), (.08, 0, -0.02)),
-                "Mouth_Bot_C":     ((0, 0, -.04),    (0, 0, -0.02)),
-                "Mouth_Bot_R":     ((-.08, 0, -.04),  (-.08, 0, -0.02)),
+                "Mouth_Top_L":     ((.55, 0, -.05), (.55, 0, 0)),
+                "Mouth_Top_C":     ((.5, 0,  -.05),    (.5, 0, 0)),
+                "Mouth_Top_R":     ((.45, 0,  -.05),  (.45, 0, 0)),
+                "Mouth_Bot_L":     ((.55, 0, -.11), (.55, 0, -.06)),
+                "Mouth_Bot_C":     ((.5, 0, -.11),    (.5, 0, -.06)),
+                "Mouth_Bot_R":     ((.45, 0, -.11),  (.45, 0, -.06)),
                 #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
             
             }
             
             for bone_name, (head, tail) in control_hook_bone_positions.items():
                 bpy.ops.object.mode_set(mode='EDIT')
-                control_bone_name = bone_name.replace("Mouth_", "Control_")
-                if control_bone_name not in edit_bones:
-                    bone = edit_bones.new(control_bone_name)
+                hook_control_bone_name = bone_name.replace("Mouth_", "Hook_Mouth_")
+                if hook_control_bone_name not in edit_bones:
+                    bone = edit_bones.new(hook_control_bone_name)
                     bone.head = head
                     bone.tail = tail
-                    bone.parent = edit_bones.get("Face_Main_Control_Board")  # parent to main control board
+                    bone.parent = edit_bones.get("Face_Mouth_Position_Control")  
                     mouth_coll.assign(bone)
                     bpy.ops.object.mode_set(mode='POSE')
-                    # Add a copy transforms constraint to the main control board for each of these bones
-                    pose_bone = armature.pose.bones.get(control_bone_name)
+                    # Add a copy transforms constraint to the helper controls for each of these bones
+                    pose_bone = armature.pose.bones.get(bone_name)
                     copy_transforms = pose_bone.constraints.new('COPY_TRANSFORMS')
                     copy_transforms.target = armature
-                    copy_transforms.subtarget = "Face_Main_Control_Board"
+                    copy_transforms.subtarget = hook_control_bone_name
                     copy_transforms.mix_mode = 'AFTER_SPLIT'
                     copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
                     copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
@@ -1519,12 +1704,17 @@ class CreateRig(bpy.types.Operator):
             
             
             
-            #create custom shapes for mouth and hooks
-            bpy.ops.object.mode_set(mode='OBJECT')
+            
             
             
             #Clean up: Hide all helper bones, change collection names, etc
+            setup_control_board_shapes(armature)
             
+            main_drawing_collection = bpy.data.collections.get("Temp Drawing Collection") 
+            main_drawing_collection.name = "GP Face Rig Drawing Collection"
+              
+            
+
         
             self.report({'INFO'}, "Rig created with two bones.")
             return {'FINISHED'}
