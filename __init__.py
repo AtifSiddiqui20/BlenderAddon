@@ -949,7 +949,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             lattice.scale[1] = .03
             lattice.scale[2] = .1
             
-            # Assign lattice Vertices to Bones in rig
+            
 
             # Add a lattice modifier to the GP object
             bpy.ops.object.select_all(action='DESELECT')
@@ -1010,16 +1010,16 @@ def build_mouth_hook_map():
     
     hook_map = {
         # Corners
-        "Mouth_Corner_R": get_range(
-            range(0, 3),   # left half U
-            range(0, 2),   # all V
-            range(3, 6)    
-        ),
-        "Mouth_Corner_L": get_range(
-            range(3, 6),   # right half U
-            range(0, 2),
-            range(3, 6)    # top half W
-        ),
+        # "Mouth_Corner_R": get_range(
+        #     range(0, 3),   # left half U
+        #     range(0, 2),   # all V
+        #     range(3, 6)    
+        # ),
+        # "Mouth_Corner_L": get_range(
+        #     range(3, 6),   # right half U
+        #     range(0, 2),
+        #     range(3, 6)    # top half W
+        # ),
 
         # Upper lip (W 3-5, the TOP half)
         "Mouth_Top_R": get_range(
@@ -1055,12 +1055,12 @@ def build_mouth_hook_map():
             range(0, 3)
         ),
 
-        # Depth — back V layer, unchanged
-        "Mouth_Depth": get_range(
-            range(0, 6),
-            range(1, 2),
-            range(0, 6)
-        ),
+        # Depth — back V layer
+        # "Mouth_Depth": get_range(
+        #     range(0, 6),
+        #     range(1, 2),
+        #     range(0, 6)
+        # ),
     }
     return hook_map
     
@@ -1135,8 +1135,8 @@ class CreateRig(bpy.types.Operator):
         # from the mouth to be in the center of the head it'll join with
         root_bone = bones[0]
         root_bone.name = "GP Face Rig Root"
-        root_bone.head = (0, 1, 0)
-        root_bone.tail = (0, 1, 0.5)
+        root_bone.head = (0, 0, 1)
+        root_bone.tail = (0, 0, 2)
         face_coll.assign(root_bone)
 
         # Create the named bone and place it in middle of Lattice
@@ -1149,7 +1149,7 @@ class CreateRig(bpy.types.Operator):
         named_bone.tail = (0, 0, 0.05)
         named_bone.parent = root_bone
         named_bone.use_connect = False
-        mouth_coll.assign(named_bone)
+        #hid_mouth_coll.assign(named_bone)
         
         # Retrieve control board and puck locations
         collection_name = "Mouth Rig Control Board Objects"
@@ -1295,18 +1295,19 @@ class CreateRig(bpy.types.Operator):
         
 
         # Parent the GP object to the armature with weights previously defined
-        
-        gp_obj = bpy.data.objects["GP Temp Face Object"]
-        gp_obj.select_set(True)
-        gp_obj.parent = armature
-        gp_obj.parent_type = 'ARMATURE'
-        arm_mod = gp_obj.modifiers.new(name="ArmatureDeform", type='GREASE_PENCIL_ARMATURE')
-        arm_mod.object = armature
-        arm_mod.use_vertex_groups = True
+        # Might not need this? Seems to work without parenting, but keeping here just in case
+        # gp_obj = bpy.data.objects["GP Temp Face Object"]
+        # gp_obj.select_set(True)
+        # gp_obj.parent = armature
+        # gp_obj.parent_type = 'ARMATURE'
+        # arm_mod = gp_obj.modifiers.new(name="ArmatureDeform", type='GREASE_PENCIL_ARMATURE')
+        # arm_mod.object = armature
+        # arm_mod.use_vertex_groups = True
         
 
         # Set up drivers for layer visibility using bones
-        
+        gp_obj = bpy.data.objects["GP Temp Face Object"]
+        gp_obj.select_set(True)
         
         for layer in gp_obj.data.layers:
             for bone_name in bone_names:
@@ -1402,11 +1403,12 @@ class CreateRig(bpy.types.Operator):
                     bone.head = head
                     bone.tail = tail
                     bone.parent = edit_bones.get("GP Mouth Bone")  # parent to existing mouth bone
+                    #hid_mouth_coll.assign(bone)
                     
 
             bpy.ops.object.mode_set(mode='OBJECT')
 
-            # --- Step 3: Add hook modifiers to the lattice per vertex group ---
+            # --- Step 1: Add hook modifiers to the lattice per vertex group ---
             bpy.context.view_layer.objects.active = lattice
 
             for bone_name, vert_indices in hook_map.items():
@@ -1420,29 +1422,110 @@ class CreateRig(bpy.types.Operator):
                 hook_mod.object = armature
                 hook_mod.subtarget = bone_name          # the specific bone
                 hook_mod.vertex_group = bone_name       # only affects these verts
-
-            # --- Step 4: Set lattice interpolation to linear ---
+                
+                
+            # --- Step 2: Set lattice interpolation to linear ---
             lattice.data.interpolation_type_u = 'KEY_LINEAR'
             lattice.data.interpolation_type_v = 'KEY_LINEAR'
             lattice.data.interpolation_type_w = 'KEY_LINEAR'
             
-            # --- Step 5: Add a modifier to the GP object to scale thickness corecctly using a driven value
-            
+            #bpy.ops.object.modifier_add(type='GREASE_PENCIL_THICKNESS')
+
+            # --- Step 3: Add a modifier to the GP object to scale thickness corecctly using a driven value
+            thick_mod = gp_obj.modifiers.new(
+                name="BoneThickness", 
+                type='GREASE_PENCIL_THICKNESS'
+            )
+            thick_mod.thickness_factor = 1.0  # start at 1.0 (no change)
+
+            # Drive the thickness factor from the bone scale
+            fcurve = thick_mod.driver_add("thickness_factor")
+            driver = fcurve.driver
+            driver.type = 'SCRIPTED'
+
+            var = driver.variables.new()
+            var.name = "s"
+            var.type = 'TRANSFORMS'
+
+            target = var.targets[0]
+            target.id = armature
+            target.bone_target = "GP Mouth Bone"
+            target.transform_type = 'SCALE_AVG'
+            target.transform_space = 'LOCAL_SPACE'
+
+            driver.expression = "s"
         
-        
-        
-        
-        
-        
-            # Add bones to control hooks 
+             
             # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
-
             # Create Mouth Face Rig Control Panel
+            #Create control bones
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.context.view_layer.objects.active = armature
+            bpy.ops.object.mode_set(mode='EDIT')
+            main_control_bone = edit_bones.new("Face_Main_Control_Board")
+            main_control_bone.head = (1.6, 0, .2) 
+            main_control_bone.tail = (1.6, 0, 1.2)
+            main_control_bone.parent = edit_bones.get("GP Face Rig Root")
+            main_control_bone.use_connect = False
+            mouth_coll.assign(main_control_bone)
+            mouth_position_control_bone = edit_bones.new("Face_Mouth_Position_Control")
+            mouth_position_control_bone.head = (1.6, 0, .2)
+            mouth_position_control_bone.tail = (1.6, 0, 1)
+            mouth_position_control_bone.parent = main_control_bone
+            mouth_position_control_bone.use_connect = False
+            mouth_coll.assign(mouth_position_control_bone)
+             
             
-
-
-
+            bpy.ops.object.mode_set(mode='POSE')
+            mouth_pose_bone = armature.pose.bones.get("GP Mouth Bone")
+            copy_transform = mouth_pose_bone.constraints.new('COPY_TRANSFORMS')
+            copy_transform.target = armature
+            copy_transform.subtarget = "Face_Mouth_Position_Control"
+            copy_transform.mix_mode = 'AFTER_SPLIT'
+            copy_transform.target_space = 'LOCAL_OWNER_ORIENT'
+            copy_transform.owner_space = 'LOCAL_WITH_PARENT'
             
+            control_hook_bone_positions = {
+            
+                "Mouth_Top_L":     ((1.65, 0, .25), (1.65, 0, 1.25)),
+                "Mouth_Top_C":     ((0, 0, .02),    (0, 0, 0.04)),
+                "Mouth_Top_R":     ((-.08, 0, .02),  (-.08, 0, 0.04)),
+                "Mouth_Bot_L":     ((.08, 0, -.04), (.08, 0, -0.02)),
+                "Mouth_Bot_C":     ((0, 0, -.04),    (0, 0, -0.02)),
+                "Mouth_Bot_R":     ((-.08, 0, -.04),  (-.08, 0, -0.02)),
+                #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
+            
+            }
+            
+            for bone_name, (head, tail) in control_hook_bone_positions.items():
+                bpy.ops.object.mode_set(mode='EDIT')
+                control_bone_name = bone_name.replace("Mouth_", "Control_")
+                if control_bone_name not in edit_bones:
+                    bone = edit_bones.new(control_bone_name)
+                    bone.head = head
+                    bone.tail = tail
+                    bone.parent = edit_bones.get("Face_Main_Control_Board")  # parent to main control board
+                    mouth_coll.assign(bone)
+                    bpy.ops.object.mode_set(mode='POSE')
+                    # Add a copy transforms constraint to the main control board for each of these bones
+                    pose_bone = armature.pose.bones.get(control_bone_name)
+                    copy_transforms = pose_bone.constraints.new('COPY_TRANSFORMS')
+                    copy_transforms.target = armature
+                    copy_transforms.subtarget = "Face_Main_Control_Board"
+                    copy_transforms.mix_mode = 'AFTER_SPLIT'
+                    copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
+                    copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
+            
+            
+            
+            
+            #create custom shapes for mouth and hooks
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            
+            #Clean up: Hide all helper bones, change collection names, etc
+            
+        
             self.report({'INFO'}, "Rig created with two bones.")
             return {'FINISHED'}
         
