@@ -9,7 +9,7 @@ bl_info = {
 }
 
 # Current Issues for mouths: 
-# Correct Scale needed - Hopefully solved
+# Naming stuff needs work - check for special characters
 
 # Current Issues for Eyes
  #Not yet implemented
@@ -21,14 +21,11 @@ bl_info = {
 # via the hidden bones, that means they are shinkrwrapped to the plane
 # show hidden bones button? 
 # Bone for mouth control/canvas
-
-
-# and the Gp objects need to move too 
-# Scale thickness needs to be ON for all grease pencil objects X
+# and the Gp objects need to move too DONE 
+# Scale thickness needs to be ON for all grease pencil objects DONE
 # Use Lights Button
 # Lattice set up not implemented fully with hooks and bones and cast groups - lattice needs vertex groups?
-
-
+# Onion Skinning - need to increment frame number to enable onion skinning, also need to make sure it is only showing the relevant frames for the shape being worked on
 
 #appending to rigs, making the interface use drivers for x and y movement, allowing it to 
 # snap to shapes rather than freely move about (only for mouth and eye shapes)
@@ -37,10 +34,10 @@ bl_info = {
 # Add Delete Rig button for my collection
 # add custom props to make sure only face rigs are edited/created
 # go into edit mode for the entire rig - needs some way to idetify which part of the rig is being worked
-#on - likely use IDs for each
+# on - likely use IDs for each
 # Mirror modifier/ button for eyes? Needs to keep origin in mind!
 
-#Adding items during creation to local view?
+# Adding items during creation to local view?
 # Add a button to show control board by itself?
 
 #Tips/things to remember: 
@@ -50,14 +47,16 @@ bl_info = {
 
 
 #missing features:
-
-#Noses
-#Eyebrows
+# Eyes
+# Noses
+# Eyebrows
 # Eyebrow Sliders/controls 
 # Widgets 
-# Increment frame number to enable onion skinning
 
 
+
+
+from email.mime import text
 
 import bpy
 import bmesh
@@ -1068,7 +1067,7 @@ def get_lattice_index(u, v, w, res_u=6, res_v=2, res_w=6):
     return u + (v * res_u) + (w * res_u * res_v)
 
 
-def create_bone_shape(name, shape_type='CIRCLE', scale=(0.1, 0.1, .1), rotation=(0, 0, 0), delete_faces=True):
+def create_bone_shape(name, shape_type='CIRCLE', scale=(0.1, 0.1, .1), rotation=(0, 0, 0), delete_faces=True, label=""):
     #Bone Head will be at the CENTER of the mesh - so the center of shapes should be at bottom of the mesh or the bone head should be offset.
     # Create a new mesh object to use as the bone shape
     if shape_type == 'CIRCLE':
@@ -1079,12 +1078,29 @@ def create_bone_shape(name, shape_type='CIRCLE', scale=(0.1, 0.1, .1), rotation=
         bpy.ops.mesh.primitive_cone_add(vertices=4, radius1=0.3, depth=0.6)
         bpy.context.active_object.rotation_euler = (0, 0, 0)
         bpy.ops.object.transform_apply(rotation=True)
+    elif shape_type == 'TEXT':
+        bpy.ops.object.text_add()
+        text_obj = bpy.context.active_object
+        if label != "" or label is not None:
+            text_obj.data.body = label
+            text_obj.data.size = 0.1
+            text_obj.data.align_x = 'CENTER'
+            text_obj.name = f"{label}"
+            text_obj.rotation_euler = (1.5707, 0, 0)
+            bpy.ops.object.convert(target='MESH')
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.dissolve_limited(angle_limit=0.05)
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            
 
     shape_obj = bpy.context.active_object
     shape_obj.name = name
 
     # Apply transformations
     shape_obj.scale = scale
+    
     shape_obj.rotation_euler = rotation
     bpy.ops.object.transform_apply(scale=True, rotation=True, location=False)
     #Delete only faces
@@ -1103,37 +1119,46 @@ def create_bone_shape(name, shape_type='CIRCLE', scale=(0.1, 0.1, .1), rotation=
     # Unlink from current collection and move to BoneShapes and add to Temp Drawing collection
     for col in shape_obj.users_collection:
         col.objects.unlink(shape_obj)
-        if col.name == "Temp Drawing Collection":
-            col.children.link(shape_collection)
     shape_collection.objects.link(shape_obj)
     
-    
-    
-    
-
-    bpy.context.scene.view_layers[0].layer_collection\
-        .children["BoneShapes"].exclude = True
-
     return shape_obj
 
-def create_bone_label(text, location):
-    bpy.ops.object.text_add(location=location)
-    text_obj = bpy.context.active_object
-    text_obj.data.body = text
-    text_obj.data.size = 0.1
-    text_obj.data.align_x = 'CENTER'
-    text_obj.name = f"Label_{text}"
-    text_obj.rotation_euler = (1.5707, 0, 0)  
+# def create_bone_label(text, location):
+#     bpy.ops.object.text_add(location=location)
+#     text_obj = bpy.context.active_object
+#     text_obj.data.body = text
+#     text_obj.data.size = 0.1
+#     text_obj.data.align_x = 'CENTER'
+#     text_obj.name = f"Label_{text}"
+#     text_obj.rotation_euler = (1.5707, 0, 0)
+    
+      
 
-    # Move to BoneShapes collection
-    shape_collection = bpy.data.collections.get("BoneShapes")
-    for col in text_obj.users_collection:
-        col.objects.unlink(text_obj)
-    shape_collection.objects.link(text_obj)
+#     # Move to BoneShapes collection
+#     shape_collection = bpy.data.collections.get("BoneShapes")
+#     for col in text_obj.users_collection:
+#         col.objects.unlink(text_obj)
+#     shape_collection.objects.link(text_obj)
 
-    return text_obj
+#     return text_obj
 
 def setup_control_board_shapes(armature):
+    main_collection = bpy.data.collections.get("Temp Drawing Collection")
+    shape_collection = bpy.data.collections.get("BoneShapes")
+    if not shape_collection:
+        shape_collection = bpy.data.collections.new("BoneShapes")
+    if main_collection and shape_collection.name not in main_collection.children:
+        main_collection.children.link(shape_collection)
+        
+    
+    layer_collection = bpy.context.scene.view_layers[0].layer_collection
+    temp_layer = layer_collection.children.get("Temp Drawing Collection")
+    if temp_layer:
+        bone_shapes_layer = temp_layer.children.get("BoneShapes")
+    if bone_shapes_layer:
+        bone_shapes_layer.exclude = True
+        
+    
     bpy.context.view_layer.objects.active = armature
     bpy.ops.object.mode_set(mode='POSE')
 
@@ -1142,23 +1167,44 @@ def setup_control_board_shapes(armature):
         
         "Face_Main_Control_Board": {
             "shape": "SQUARE",
-            "label": "Main",
+            "label": "Face Control Board",
+            "label_scale": (0.5, 0.5, 0.5),
             "color": (0.3, 0.8, 0.3, 1),  # green
             "location": (.5, 0, .24),
             "scale": (0.3, 0.5, .3),
             "rotation": (0, 0, 0),  
         },
+        "Label_Face_Main_Control_Board": {
+            "shape": "TEXT",
+            "label": "Face Control Board",
+            "label_scale": (0.2, 0.2, 0.2),
+            "color": (0.3, 0.8, 0.3, 1),  # green
+            "location": (.5, 0, .1),
+            "scale": (0.3, 0.3, .3),
+            "rotation": (0, 0, 0),
+            
+        },
         "Face_Mouth_Canvas": {
             "shape": "SQUARE",
-            "label": "Mouth Canvas",
+            "label": "Mouth Control",
+            "label_scale": (0.2, 0.2, 0.2),
             "color": (0.3, 0.3, 1, 1),  # blue
-            "location": (.5, 0, .24),
+            "location": (.4, 0, -.015),
             "scale": (0.29, 0.126, .3),
             "rotation": (0, 0, 0),
         },
+        "Label_Mouth_Position_Control": {
+            "shape": "TEXT",
+            "label": "Mouth Position",
+            "label_scale": (0.1, 0.1, 0.1),
+            "color": (0.3, 0.3, 1, 1),  # blue
+            "location": (.4, 0, -.015),
+            "scale": (0.3, 0.3, .3),
+            "rotation": (0, 0, 0),
+            
+        },
         "Face_Mouth_Position_Control": {
             "shape": "SQUARE",
-            "label": "Mouth",
             "color": (1, 0.3, 0.3, 1),
             "location": (.5, 0, .24),
             "scale": (0.06, 0.04, .03),
@@ -1210,7 +1256,8 @@ def setup_control_board_shapes(armature):
             settings["shape"],
             settings.get("scale", (0.1, 0.1, 0.1)),
             settings.get("rotation", (0, 0, 0)),
-            settings.get("delete_faces", True)
+            settings.get("delete_faces", True),
+            settings.get("label", None)
         )
         pose_bone.custom_shape = shape_obj
         pose_bone.use_custom_shape_bone_size = False  
@@ -1221,10 +1268,10 @@ def setup_control_board_shapes(armature):
             pose_bone.head.y,
             pose_bone.head.z + 0.15
         )
-        if "label" in settings:
-            label_obj = create_bone_label(settings["label"], label_loc)
-        else:
-            continue
+        # if "label" in settings:
+        #     label_obj = create_bone_label(settings["label"], label_loc)
+        # else:
+        #     continue
         
 
         # Set bone color group
@@ -1544,7 +1591,7 @@ class CreateRig(bpy.types.Operator):
             lattice_constraint = lattice.constraints.new(type =  'CHILD_OF')
             lattice_constraint.target = bpy.data.objects["GP_Rig"]
             #lattice_constraint.subtarget = "GP Mouth Bone" uneeded for some reason
-        # Create bones for lattice and assign vertex groups to vertices to mouth bone - set to linear 
+        # Create bones for lattice and assign vertex groups to vertices to mouth bone - set to linear -- actually bspline is fine 
             hook_map = build_mouth_hook_map()
             bpy.context.view_layer.objects.active = armature
             bpy.ops.object.mode_set(mode='EDIT')
@@ -1590,10 +1637,10 @@ class CreateRig(bpy.types.Operator):
                 hook_mod.vertex_group = bone_name       # only affects these verts
                 
                 
-            # --- Step 2: Set lattice interpolation to linear ---
-            lattice.data.interpolation_type_u = 'KEY_LINEAR'
-            lattice.data.interpolation_type_v = 'KEY_LINEAR'
-            lattice.data.interpolation_type_w = 'KEY_LINEAR'
+            # # --- Step 2: Set lattice interpolation to linear ---
+            # lattice.data.interpolation_type_u = 'KEY_LINEAR'
+            # lattice.data.interpolation_type_v = 'KEY_LINEAR'
+            # lattice.data.interpolation_type_w = 'KEY_LINEAR'
             
             #bpy.ops.object.modifier_add(type='GREASE_PENCIL_THICKNESS')
 
@@ -1602,7 +1649,7 @@ class CreateRig(bpy.types.Operator):
                 name="BoneThickness", 
                 type='GREASE_PENCIL_THICKNESS'
             )
-            thick_mod.thickness_factor = 1.0  # start at 1.0 (no change)
+            thick_mod.thickness_factor = 1.0  # start at 1.0 
 
             # Drive the thickness factor from the bone scale
             fcurve = thick_mod.driver_add("thickness_factor")
@@ -1636,11 +1683,20 @@ class CreateRig(bpy.types.Operator):
             main_control_bone.use_connect = False
             mouth_coll.assign(main_control_bone)
             
+            #Main Control Board Label
+            main_control_label_bone = edit_bones.new("Label_Face_Main_Control_Board")
+            main_control_label_bone.head = (.5, 0, .3)
+            main_control_label_bone.tail = (.5, 0, .5)
+            main_control_label_bone.parent = edit_bones.get("Face_Main_Control_Board")
+            main_control_label_bone.use_connect = False
+            mouth_coll.assign(main_control_label_bone)
+            
             #Canvas bone
             mouth_position_canvas_bone = edit_bones.new("Face_Mouth_Canvas")
             mouth_position_canvas_bone.head = (.5, 0, -.08)
             mouth_position_canvas_bone.tail = (.5, 0, 0.15) 
             mouth_position_canvas_bone.parent = main_control_bone
+            mouth_position_canvas_bone.use_connect = False
             mouth_coll.assign(mouth_position_canvas_bone)
            
            
@@ -1652,11 +1708,12 @@ class CreateRig(bpy.types.Operator):
             mouth_position_control_bone.use_connect = False
             mouth_coll.assign(mouth_position_control_bone)
             
-            #Mouth Label Bone
+            #Mouth Position Label Bone
             mouth_label_bone = edit_bones.new("Label_Mouth_Position_Control")
-            mouth_label_bone.head = (.5, 0, -.08)
-            mouth_label_bone.tail = (.5, 0, 0)
-            mouth_label_bone.parent = mouth_position_control_bone
+            mouth_label_bone.head = (.45, 0, -.014)
+            mouth_label_bone.tail = (.45, 0, 0.06)
+            mouth_label_bone.parent = mouth_position_canvas_bone
+            mouth_label_bone.use_connect = False
             mouth_coll.assign(mouth_label_bone)
             
             
@@ -1724,6 +1781,16 @@ class CreateRig(bpy.types.Operator):
         return {'CANCELLED'}
     
     
+    
+class GoBackToHome(bpy.types.Operator):
+    """Go back to Mouth Drawing Step"""
+    bl_idname = "object.go_back_to_mouths"
+    bl_label = "Go Back to Mouth Drawing"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        context.scene.gp_face_mode = 'NONE'
+        return {'FINISHED'}
 
 
 ##### UI Panel #####
@@ -1739,12 +1806,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
     
 
-    
-    
-
     def draw(self, context):
-        
-        
         
         scn = context.scene
         layout = self.layout
@@ -1773,10 +1835,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
                 row = layout.row(align=True)
                 row.scale_y = 1.2
                 row.operator(ViewCenterOriginMouths.bl_idname, text="Create Mouth Shapes", icon = 'FILE_NEW')
-                layout.separator()
-                
-                
-                
+                layout.separator()     
             
             col.alert = False
             
@@ -1788,7 +1847,6 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         
         
         
-       
         # Eyes Create UI        
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'EYES':
             col.label(text= "Draw Eye Shapes")
@@ -1804,10 +1862,10 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             #     row.enabled = not is_active
             #     op = row.operator("my.set_eye_layer", text=step.replace("_", " ").title())
             #     op.layer_name = step
-            
-            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            row = col.row()
-            row.prop(context.scene.grease_pencil_face_rig_settings, "eye_shape_name")
+            col.operator(GoBackToHome.bl_idname, text="Go Back")
+            # col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            # row = col.row()
+            # row.prop(context.scene.grease_pencil_face_rig_settings, "eye_shape_name")
             
             #col.operator(FinishEyeShape.bl_idname, text="Finish Eye Shape")
             #col.operator(GPDoneDrawingEyes.bl_idname, text="Done")
@@ -1850,7 +1908,8 @@ classes = (
     GPDoneDrawingMouth,
     EyeItem,
     MY_OT_set_eye_layer,
-    finishEyeShape
+    finishEyeShape,
+    GoBackToHome
     
 )
 
