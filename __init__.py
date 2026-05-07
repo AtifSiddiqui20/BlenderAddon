@@ -1831,8 +1831,8 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
                 layout.separator()
                 row = layout.row(align=True)
                 row.scale_y = 1.2
-                row.operator(ViewCenterOriginEyes.bl_idname, text="Create Eye Shapes", icon = 'HIDE_OFF')
-                row = layout.row(align=True)
+                # row.operator(ViewCenterOriginEyes.bl_idname, text="Create Eye Shapes", icon = 'HIDE_OFF')
+                # row = layout.row(align=True)
                 row.scale_y = 1.2
                 row.operator(ViewCenterOriginMouths.bl_idname, text="Create Mouth Shapes", icon = 'FILE_NEW')
                 layout.separator()     
