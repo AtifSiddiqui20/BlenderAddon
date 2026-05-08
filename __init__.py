@@ -807,8 +807,8 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             spacing_x = 0.5
             spacing_z = 0.5
             items_per_row = 4
-            x = 2.0
-            z = 2.25
+            x = .9
+            z = .4
 
             gp_object_count = 0
             for obj in collection.objects:
@@ -820,7 +820,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
                     x += spacing_x
 
                     if (gp_object_count % items_per_row == 0):
-                        x = 2.0
+                        x = .90
                         z -= spacing_z
 
             num_rows = math.ceil(gp_object_count / items_per_row)
@@ -872,8 +872,8 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
             bpy.context.scene.cursor.location = (0, 0, 0)  # Reset the cursor location
 
-            plane.location.x = 1.8
-            plane.location.z = 2.4
+            plane.location.x = .7
+            plane.location.z = .55
             
 
             # Make the plane unselectable and change its display type to wire
