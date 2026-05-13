@@ -113,6 +113,46 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
 #          how to check it
     )
     
+class ShrinkwrapSettings(bpy.types.PropertyGroup):
+    target_object: bpy.props.PointerProperty(
+        name="Shrinkwrap Target",
+        description="Object to shrinkwrap to",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'MESH'
+    )
+    wrap_method: bpy.props.EnumProperty(
+     name = "Shrinkwrap Method",
+     items = [('NEAREST_SURFACEPOINT', "Nearest Surface Point", ""),
+              ('PROJECT', "Project", ""),
+              ('NEAREST_VERTEX', "Nearest Vertex", "")],
+        default='NEAREST_SURFACEPOINT'   
+    )
+    wrap_mode: bpy.props.EnumProperty(
+        name = "Shrinkwrap Mode",
+        items = [('ON_SURFACE', "On Surface", ""),
+                 ('INSIDE', "Inside", ""),
+                 ('OUTSIDE', "Outside", ""),
+                 ('OUTSIDE_SURFACE', "Outside Surface", ""),
+                 ('ABOVE_SURFACE', "Above Surface", "")],
+        
+        default='ABOVE_SURFACE'
+    )
+    offset: bpy.props.FloatProperty(   
+        name="Shrinkwrap Offset",
+        description="Distance to keep from the target surface",
+        default=0.01,
+        min=0.0,
+        max=1.0
+    )
+    use_negative_direction: bpy.props.BoolProperty(
+        name="Use Negative Direction",  
+        default=False
+    )
+    
+    use_positive_direction: bpy.props.BoolProperty(
+        name="Use Positive Direction",
+        default=False
+    )
     
     
 
@@ -424,8 +464,9 @@ class ViewCenterOriginMouths(bpy.types.Operator):
     bl_label = "Create Grease Pencil Mouth Object"
     bl_options = {'REGISTER', 'UNDO'}
     
-    # poll method to check if mouths is already set up
-
+    
+            
+        
     def execute(self, context):
         
         context.scene.gp_face_mode = 'MOUTHS'
@@ -1287,6 +1328,16 @@ class CreateRig(bpy.types.Operator):
     bl_idname = "object.create_rig"
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    
+    @classmethod
+    def poll(cls, context):
+        # Ensure there's an active Grease Pencil object and it has an ID
+        gp_obj = context.active_object
+        if gp_obj and gp_obj.type == 'GREASEPENCIL':
+            vgroup_name = "GP Mouth Bone"
+            return vgroup_name in gp_obj.vertex_groups
+        return False
 
 
     def execute(self, context):
@@ -1525,7 +1576,7 @@ class CreateRig(bpy.types.Operator):
         for layer in gp_obj.data.layers:
             for bone_name in bone_names:
                 
-                layer_pattern = re.compile(f"^{bone_name.replace(' Shape Bone', '')}(\.\d+)?$")
+                layer_pattern = re.compile(f"^{re.escape(bone_name.replace(' Shape Bone', ''))}(\\.\\d+)?$")
                 bone_name = bone_name + "_Shape_Bone"
                 if layer_pattern.match(layer.name):
                     driver = layer.driver_add("hide").driver
@@ -1780,6 +1831,52 @@ class CreateRig(bpy.types.Operator):
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
     
+
+    
+class MY_OT_apply_shrinkwrap(bpy.types.Operator):
+    """Bind the face rig to a 3D object using the vertex group created from the grease pencil layers"""
+    bl_idname = "my.apply_shrinkwrap"
+    bl_label = "Apply Shrinkwrap"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        settings = context.scene.shrinkwrap_settings
+        lattice = bpy.data.objects.get("GPMouthLattice")
+        
+        if not lattice:
+            self.report({'ERROR'}, "Lattice object 'GPMouthLattice' not found.")
+            return {'CANCELLED'}
+        if not settings.target_object:
+            self.report({'ERROR'}, "No target object selected.")
+            return {'CANCELLED'}
+        mod = lattice.modifiers.new(name="MouthShrinkwrap", type='SHRINKWRAP')
+        mod.target = settings.target_object
+        mod.wrap_method = settings.wrap_method
+        mod.wrap_mode = settings.wrap_mode
+        mod.offset = settings.offset
+        #Legacy
+        if settings.wrap_method == 'PROJECT':
+            mod.use_negative_direction = settings.use_negative_direction
+            mod.use_positive_direction = settings.use_positive_direction
+        bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)  # Move to top of stack
+            
+        return {'FINISHED'}
+    
+    def update_shrinkwrap(self, context):
+    
+        lattice = bpy.data.objects.get("GPMouthLattice")
+        mod = lattice.modifiers.get("ShrinkwrapToFace") if lattice else None
+        if mod:
+            mod.offset = self.offset
+
+        offset: bpy.props.FloatProperty(
+            name="Offset",
+            default=0.0,
+            update=update_shrinkwrap  # fires every time the value changes
+        )
+        
+        
+    
     
     
 class GoBackToHome(bpy.types.Operator):
@@ -1827,6 +1924,10 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             col.label(text="1. Start")
             col.alert = True
             col.operator(SetUp.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
+            # Step 2: Draw Facial Features by each feature
+            col = layout.column(align=True)
+            col.label(text="2. Draw Features")
+            row = layout.row(align=True)
             if context.scene.has_setup_been_run:
                 layout.separator()
                 row = layout.row(align=True)
@@ -1840,13 +1941,10 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             col.alert = False
             
 
-        # Step 2: Draw Facial Features by each feature
+        
+        
+        
         col = layout.column(align=True)
-        col.label(text="2. Draw Features")
-        row = layout.row(align=True)
-        
-        
-        
         # Eyes Create UI        
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'EYES':
             col.label(text= "Draw Eye Shapes")
@@ -1884,7 +1982,39 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         # Step 4: Create Rig
         col = layout.column(align=True)
         col.label(text="4. Finalize")
+        col.enabled = context.scene.has_setup_been_run
         col.operator(CreateRig.bl_idname, text="Create Rig")
+        
+        # Step 5: Bind to 3d object
+        col = layout.column(align=True)
+        col.label(text="5. (Optional) Bind face rig to a 3D Object")
+        col.enabled = context.scene.has_setup_been_run
+        lattice = bpy.data.objects.get("GPMouthLattice")
+        settings = context.scene.shrinkwrap_settings
+        layout.prop(settings, "target_object", icon = 'MESH_DATA')
+        if not settings.target_object:
+            col.label(text="Select a target object to bind the lattice to.", icon='INFO')
+            return
+        layout.separator()
+        layout.operator(MY_OT_apply_shrinkwrap.bl_idname, text="Apply Shrinkwrap Modifier")
+        if not lattice or not lattice.modifiers.get("Shrinkwrap"):
+            col.label(text="Lattice or Shrinkwrap modifier not found. Ensure you have a lattice named 'GPMouthLattice' and have applied the rig creation step.", icon='ERROR')
+            return
+        
+        layout.separator()
+        layout.label(text="After applying, adjust the shrinkwrap settings in the lattice's modifier panel as needed.)", icon='INFO')
+        # layout.prop(settings, "wrap_method")
+        # layout.prop(settings, "wrap_mode")
+        # layout.prop(settings, "offset")
+        # if settings.wrap_method == 'PROJECT':
+        #     row=layout.row()
+        #     layout.prop(settings, "use_negative_direction")
+        #     layout.prop(settings, "use_positive_direction")
+        # layout.separator()
+        layout.label(text="Tips: Use the 'Above Surface' option in the shrinkwrap modifier to prevent clipping, and adjust the offset value to find the sweet spot for your model.", icon='INFO')
+        layout.label(text="You can also manually adjust the lattice's shrinkwrap modifier using the modifier panel on the Lattice.", icon='INFO')
+                       
+        
         
 
 
@@ -1897,6 +2027,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
 
 classes = (
     GreasePencilFaceRigSettings,
+    ShrinkwrapSettings,
     FinishMouthShape,
     SetUp,
     ViewCenterOriginMouths,
@@ -1905,6 +2036,7 @@ classes = (
     GP_PT_Face_Rig_Workflow_Panel,
     GPAddNewLayer,
     CreateRig,
+    MY_OT_apply_shrinkwrap,
     GPDoneDrawingMouth,
     EyeItem,
     MY_OT_set_eye_layer,
@@ -1951,10 +2083,11 @@ def register():
         items=(('MOUTHS', 'Mouths', 'Mouths Mode'), ('EYES', 'Eyes', 'Eyes Mode'), ('NOSE', 'Nose', 'Nose Mode'), ('NONE', 'None', 'default')), options={'HIDDEN'})
     bpy.types.Scene.number_of_eyes = bpy.props.IntProperty(name="Number of Eyes", default=2, min=1, max = 10, description="Number of eyes to generate")
     bpy.types.Scene.has_setup_been_run = bpy.props.BoolProperty(name="Has SetUp Been Run", default=False)
+    bpy.types.Scene.shrinkwrap_settings = bpy.props.PointerProperty(type=ShrinkwrapSettings)
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
     bpy.types.Scene.eye_collection = bpy.props.CollectionProperty(type=EyeItem)
     bpy.types.Scene.active_eye_index = bpy.props.IntProperty(default=0)
-    
+    bpy.types.Scene.enable_onion_skinning = bpy.props.BoolProperty(name="Enable Onion Skinning", default=False)
 
 
 def unregister():
@@ -1968,7 +2101,8 @@ def unregister():
     if 'get_bone_distance' in bpy.app.driver_namespace:
         del bpy.app.driver_namespace['get_bone_distance']
     del bpy.types.Scene.has_setup_been_run
-
+    del bpy.types.Scene.shrinkwrap_settings
+    
 
 if __name__ == "__main__":
     register()
