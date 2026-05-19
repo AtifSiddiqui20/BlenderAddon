@@ -9,24 +9,22 @@ bl_info = {
 }
 
 # Current Issues for mouths: 
-# Naming stuff needs work - check for special characters
+# Naming stuff needs work - check for special characters -DONE
+#  
 
 # Current Issues for Eyes
  #Not yet implemented
 
 
 #missing features for mouths: 
-# The created bones for each shape should be able to move the gp shapes-DONE
-# they correspond to, so every mouth shape should be moveable
-# via the hidden bones, that means they are shinkrwrapped to the plane
-# show hidden bones button? 
-# Bone for mouth control/canvas
-# and the Gp objects need to move too DONE 
-# Scale thickness needs to be ON for all grease pencil objects DONE
-# Use Lights Button
-# Lattice set up not implemented fully with hooks and bones and cast groups - lattice needs vertex groups?
-# Onion Skinning - need to increment frame number to enable onion skinning, also need to make sure it is only showing the relevant frames for the shape being worked on
 
+# show hidden bones button? 
+# Use Lights Button
+# Onion Skinning -Developed a system for this 
+#Set Interpolation Mode for keyframes to constant for mouth puck
+
+
+#General Notes:
 #appending to rigs, making the interface use drivers for x and y movement, allowing it to 
 # snap to shapes rather than freely move about (only for mouth and eye shapes)
 
@@ -81,6 +79,58 @@ def get_bone_distance(armature, bone1_name, bone2_name):
     distance = (world_pos1 - world_pos2).length
     return distance
 
+def update_onion_skinning(self, context):
+    bpy.app.timers.register(update_onion_display(self, context), first_interval=0.1)
+
+
+    collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+    if not collection:
+        return
+    
+    gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
+    if not self.use_onion_skinning:
+        for obj in gp_duplicates:
+            obj.hide_viewport = True
+        self.onion_preview_index = max(0, len(gp_duplicates) - 1)
+        return
+    update_onion_display(self, context)
+    
+def update_onion_display(self, context):
+    settings = context.scene.grease_pencil_face_rig_settings
+    if not settings.use_onion_skinning:
+        return None
+    collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+    if not collection:
+        return
+    gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
+    if not gp_duplicates:
+        return None
+    
+    if not settings.use_onion_skinning:
+        for obj in gp_duplicates:
+            obj.hide_viewport = True
+        return None
+    idx = max(0, min(self.onion_preview_index, len(gp_duplicates) - 1))
+    
+    for obj in gp_duplicates:
+        obj.hide_viewport = True
+        obj.hide_set(True)
+        for layer in obj.data.layers:
+            layer.opacity = 1.0
+
+    if gp_duplicates:
+        ghost = gp_duplicates[idx]
+        ghost.hide_set(False)
+        ghost.hide_viewport = False
+        apply_onion_opacity(ghost, settings.onion_opacity)
+    return None
+
+
+def apply_onion_opacity(onion_gp_obj, opacity):
+    if not onion_gp_obj or onion_gp_obj.type != 'GREASEPENCIL':
+        return
+    for layer in onion_gp_obj.data.layers:
+        layer.opacity = opacity
 
 class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
     mouth_shape_name: str
@@ -89,6 +139,25 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         description="Enter a name for the mouth shape",
         default="",
         maxlen=25,
+    )
+    use_onion_skinning: bpy.props.BoolProperty(
+        name="Use Onion Skinning",
+        description="Enable onion skinning for the face rig",
+        default=False,
+        update = update_onion_skinning
+    )
+    onion_preview_index: bpy.props.IntProperty(
+        name="Index of frames to show in onion skinning",
+        default=0,
+        update=update_onion_skinning
+    )
+    onion_opacity: bpy.props.FloatProperty(
+        name="Onion Skinning Opacity",
+        description="Opacity for onion skinning",
+        default=0.3,
+        min=0.0,
+        max=1.0,
+        update=update_onion_skinning
     )
     Eye_shape_name: str
     Eye_shape_name: bpy.props.StringProperty(
@@ -113,6 +182,11 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
 #          how to check it
     )
     
+
+class MouthFrameItem(bpy.types.PropertyGroup):
+    frame_number: bpy.props.IntProperty()
+    mouth_name: bpy.props.StringProperty()
+
 class ShrinkwrapSettings(bpy.types.PropertyGroup):
     target_object: bpy.props.PointerProperty(
         name="Shrinkwrap Target",
@@ -579,17 +653,13 @@ class ViewCenterOriginMouths(bpy.types.Operator):
 
 
 
-
-
-
-
-
-
 class FinishMouthShape(bpy.types.Operator):
     """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
     bl_idname = "grease_pencil.finish_mouth_shape"
     bl_label = "Finish Mouth Shape"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    
 
     def is_layer_empty(self, layer):
         """Check if a Grease Pencil layer is empty"""
@@ -597,21 +667,30 @@ class FinishMouthShape(bpy.types.Operator):
             if GPencilframe.items:
                 return False
         return True
+    
+        
 
     def execute(self, context):
+        
+        settings = context.scene.grease_pencil_face_rig_settings
         # Get the name for the mouth shape from the property group
-        mouth_name = bpy.context.scene.grease_pencil_face_rig_settings.mouth_shape_name
-        # print(mouth_name)
-
+        mouth_name = settings.mouth_shape_name
         # Check if the mouth shape name is provided
         if not mouth_name:
             self.report({'WARNING'}, "You should enter a name for the mouth shape")
             return {'CANCELLED'}
-
         # Get the active object
         gp_obj = context.active_object
+        if not gp_obj or gp_obj.type != 'GREASEPENCIL':
+            self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+            return {'CANCELLED'}
+        
+        # if settings.use_framemode:
+        #     return self.finish_mouth_shape_frame_mode(context, gp_obj, mouth_name)
+        # else:
+        #     return self.finish_mouth_shape_layer_mode(context, gp_obj, mouth_name)
+    
         if gp_obj and gp_obj.type == 'GREASEPENCIL':
-
             # Check if all visible layers are empty
             all_empty = True
             for layer in gp_obj.data.layers:
@@ -636,14 +715,10 @@ class FinishMouthShape(bpy.types.Operator):
             for layer in gp_duplicate.data.layers:
                 if layer.hide:
                     #Deletes all layers that are hidden
-                    # Needs updating - does not work currently
                     gp_duplicate.data.layers.remove(layer)
             
         #assign each dup layer to vertex group for eventual bone parenting 
-        ## Currently Assigns Correctly, but not armatured (had to turn on deform for mouth shape bones)
-        ## make sure to make the letters move too. Might have to redo it with constraints instead
-        # to move in Object modfe rather than edit mode
-        # also the extra layers arent being deleted
+    
             if gp_duplicate and gp_duplicate.type == 'GREASEPENCIL':
             # Create or get the vertex group
                 vgroup_name = mouth_name + " Shape Bone"
@@ -674,12 +749,10 @@ class FinishMouthShape(bpy.types.Operator):
                 self.report({'INFO'}, "Vertices added to mouth controller vertex group.")
 
             # Scale the duplicate
-            gp_duplicate.scale *= 2.5
+            # Gonna need to do this later
+            #gp_duplicate.scale *= 2.5
             #bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
-            
-            
-           
             # Create or get the "Mouth Rig Control Board Objects" collection within "Temp Drawing Collection"
             parent_collection_name = "Temp Drawing Collection"
             new_collection_name = "Mouth Rig Control Board Objects"
@@ -712,7 +785,7 @@ class FinishMouthShape(bpy.types.Operator):
             text_obj.data.align_y = 'CENTER'
             
             # Calculate the scale based on the length of the text
-            base_scale = 0.1
+            base_scale = 0.04
             text_length = len(text_obj.data.body)
 
             # Adjust the scale inversely proportional to the length of the text
@@ -720,7 +793,7 @@ class FinishMouthShape(bpy.types.Operator):
             if text_length > 6:
                 text_obj.scale = (scale_factor, scale_factor, scale_factor)
             else:
-                text_obj.scale = (.1, .1, .1)
+                text_obj.scale = (.06, .06, .06)
             
             # Link the text object & Duplicate to the new collection -- 
             if gp_duplicate.name not in new_collection.objects:
@@ -774,6 +847,38 @@ class FinishMouthShape(bpy.types.Operator):
             return {'FINISHED'}
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
+    
+    
+    # def finish_mouth_shape_frame_mode(self, context, gp_obj, mouth_name):
+    #     settings = context.scene.grease_pencil_face_rig_settings
+    #     layer = gp_obj.data.layers.active
+    #     if not layer:
+    #         self.report({'ERROR'}, "No active layer found.")
+    #         return {'CANCELLED'}
+    #     current_frame = context.scene.frame_current
+    #     if not self.check_if_auto_keying_is_on():
+    #         bpy.context.scene.tool_settings.use_keyframe_insert_auto = True
+    #         self.report({'INFO'}, "Auto keyframing has been enabled.")
+    #     item = context.scene.mouth_frames.add()
+    #     item.frame_number = current_frame
+    #     item.mouth_name = mouth_name
+    #     self.report({'INFO'}, f"Mouth shape '{mouth_name}' recorded at frame {current_frame}.")
+    #     next_frame = current_frame + 1
+    #     context.scene.frame_current = next_frame
+        
+    #     if not layer.frames.get(next_frame):
+    #         layer.frames.new(frame_number=next_frame)
+    #         settings.mouth_shape_name = ""
+    #         context.scene.finish_mouth_count += 1
+    #         self.report({'INFO'}, f"Moved to frame {next_frame} for next mouth shape.")
+    #         return {'FINISHED'}
+    
+    
+    def check_if_auto_keying_is_on(self):
+        if not bpy.context.scene.tool_settings.use_keyframe_insert_auto:
+            self.report({'WARNING'}, "Auto keyframing is not enabled. Please enable it to use frame mode.")
+            return False
+        return True
 
 
 
@@ -790,27 +895,25 @@ class GPDoneDrawingMouth(bpy.types.Operator):
 
     def execute(self, context):
         
-        #Need to check for drawings currently not saved with name
-        # Get the active object
-#        gp_obj = context.active_object
-#        if gp_obj and gp_obj.type == 'GREASE_PENCIL':
-#            active_layer = gp_obj.data.layers.active
-#            if active_layer
-#        
-#        mouth_name = bpy.context.scene.grease_pencil_face_rig_settings.mouth_shape_name
-#        if mouth_name and 
         
-         
+        settings = context.scene.grease_pencil_face_rig_settings
+        
+        
+        #if context.scene.mouth_frames != None and len(context.scene.mouth_frames) > 0:
+            
         # Ensure there are no name conflicts
         self.remove_object_by_name("Mouth Shape Control Selector")
         context.active_object.select_set(True)
         gp_obj = context.active_object
+        
         if gp_obj and gp_obj.type == 'GREASEPENCIL':
             # Create or get the vertex group
             vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
                 gp_obj.vertex_groups.new(name=vgroup_name)
 
+            # if settings.use_framemode:
+            #     return {'FINISHED'}
             # Enter edit mode
             bpy.ops.object.mode_set(mode='EDIT')
 
@@ -855,6 +958,12 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             for obj in collection.objects:
                 obj.hide_viewport = False
                 if obj.type == 'GREASEPENCIL':
+                    # make sure the object is visible and selectable
+                    
+                    obj.hide_viewport = False
+                    obj.hide_set(False)
+                    for layer in obj.data.layers:
+                        layer.opacity = 1.0
                     obj.location.x = x
                     obj.location.z = z
                     gp_object_count += 1
@@ -863,6 +972,10 @@ class GPDoneDrawingMouth(bpy.types.Operator):
                     if (gp_object_count % items_per_row == 0):
                         x = .90
                         z -= spacing_z
+                    if obj.type == 'GREASEPENCIL':
+                        obj.scale *= 2.5
+                elif obj.type == 'FONT':
+                    obj.location.z = obj.location.z + .1
 
             num_rows = math.ceil(gp_object_count / items_per_row)
             bpy.ops.mesh.primitive_plane_add(size=1, enter_editmode=True, location=(2, 0, 2), rotation=(1.5708, 0, 0))
@@ -1809,12 +1922,6 @@ class CreateRig(bpy.types.Operator):
                     copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
                     copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
             
-            
-            
-            
-            
-            
-            
             #Clean up: Hide all helper bones, change collection names, etc
             setup_control_board_shapes(armature)
             
@@ -1877,6 +1984,24 @@ class MY_OT_apply_shrinkwrap(bpy.types.Operator):
         
         
     
+class MY_OT_onion_navigate(bpy.types.Operator):
+    bl_idname = "my.onion_navigate"
+    bl_label = "Navigate Onion Skin"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    direction: bpy.props.IntProperty(name = "Direction", default=1)  # 1 for forward, -1 for backward
+    def execute(self, context):
+        settings = context.scene.grease_pencil_face_rig_settings
+        collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+        if not collection:
+            self.report({'ERROR'}, "Collection 'Mouth Rig Control Board Objects' not found.")
+            return {'CANCELLED'}
+        gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
+        
+        new_index = settings.onion_preview_index + self.direction
+        settings.onion_preview_index = max(0, min(new_index, len(gp_duplicates) - 1))
+        
+        return {'FINISHED'}
     
     
 class GoBackToHome(bpy.types.Operator):
@@ -1902,6 +2027,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     bl_label = "Grease Pencil Face Rig Workflow"
     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
     
+    
 
     def draw(self, context):
         
@@ -1911,6 +2037,8 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         box.label(text=f"State: {scn.gp_face_mode}")
         box.label(text=f"Mode: {context.mode}")
         obj = context.object
+        settings = context.scene.grease_pencil_face_rig_settings
+        
         
         # Step 1: Create or Edit Rig
         row = layout.row(align=True)
@@ -1977,6 +2105,39 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
+            collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+            if collection:
+                gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
+                if gp_duplicates:
+                    col.label(text = "Onion skinning", icon = 'ONIONSKIN_ON' if context.scene.use_onion_skinning else 'ONIONSKIN_OFF')
+                    col.prop(settings, "use_onion_skinning", toggle = True, icon='ONIONSKIN_ON' if context.scene.use_onion_skinning else 'ONIONSKIN_OFF')
+                
+            if settings.use_onion_skinning:
+                
+                col = layout.column(align=True)
+                col.prop(settings, "onion_preview_index", text="Preview Shape", slider=True)
+                collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+                if collection:
+                    gp_duplicates = [
+                        obj for obj in collection.objects
+                        if obj.type == 'GREASEPENCIL'
+                    ]
+                idx = settings.onion_preview_index
+                if gp_duplicates and 0 <= idx < len(gp_duplicates):
+                    col.label(text=f"Showing: {gp_duplicates[idx].name}", icon='GREASEPENCIL')
+                
+                
+                
+                col.prop(settings, "onion_opacity", text="Onion Opacity", slider=True)
+                row = col.row(align=True)
+                prev = row.operator("my.onion_navigate", text="Previous", icon='TRIA_LEFT')
+                prev.direction = -1
+                next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT')
+                next.direction = 1
+
+                    # Need to check if the correct properties are being made, might be a duplicate in the registration?
+                    #Need Onion naviagtion operator -- 
+                    # Also needto make sure we scalew the gp_duplicates during the FINAL arrangement, not before as it is now
         #col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
             
         # Step 4: Create Rig
@@ -2028,6 +2189,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
 classes = (
     GreasePencilFaceRigSettings,
     ShrinkwrapSettings,
+    MouthFrameItem,
     FinishMouthShape,
     SetUp,
     ViewCenterOriginMouths,
@@ -2041,7 +2203,8 @@ classes = (
     EyeItem,
     MY_OT_set_eye_layer,
     finishEyeShape,
-    GoBackToHome
+    GoBackToHome,
+    MY_OT_onion_navigate
     
 )
 
@@ -2087,8 +2250,8 @@ def register():
     bpy.app.driver_namespace['get_bone_distance'] = get_bone_distance
     bpy.types.Scene.eye_collection = bpy.props.CollectionProperty(type=EyeItem)
     bpy.types.Scene.active_eye_index = bpy.props.IntProperty(default=0)
-    bpy.types.Scene.enable_onion_skinning = bpy.props.BoolProperty(name="Enable Onion Skinning", default=False)
-
+    bpy.types.Scene.use_onion_skinning = bpy.props.BoolProperty(name="Enable Onion Skinning", default=False)
+    bpy.types.Scene.mouth_frame_map = bpy.props.CollectionProperty(type=MouthFrameItem)
 
 def unregister():
     for cls in reversed(classes):
