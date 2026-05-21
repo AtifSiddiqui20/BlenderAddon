@@ -8,20 +8,22 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
-# Current Issues for mouths: 
-# Naming stuff needs work - check for special characters -DONE
-#  
+# Current missing features for mouths: 
+# Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made
+# Rig ID
+# Cleanup UI, bone sizes/placements and logic to make sure its airtight
+# Edit button?
+# # Use Lights Button
 
 # Current Issues for Eyes
  #Not yet implemented
 
 
-#missing features for mouths: 
+ 
 
 # show hidden bones button? 
-# Use Lights Button
-# Onion Skinning -Developed a system for this 
-#Set Interpolation Mode for keyframes to constant for mouth puck
+ 
+# Set Interpolation Mode for keyframes to constant for mouth puck
 
 
 #General Notes:
@@ -66,6 +68,8 @@ from bpy import context
 from bpy.types import (Operator, Menu, Panel, UIList, PropertyGroup)
 from bpy.props import (StringProperty, BoolProperty, IntProperty, FloatProperty, EnumProperty, PointerProperty)
 
+
+#Helper functions
 def get_bone_distance(armature, bone1_name, bone2_name):
     depsgraph = bpy.context.evaluated_depsgraph_get()
     armature_eval = armature.evaluated_get(depsgraph)
@@ -80,58 +84,87 @@ def get_bone_distance(armature, bone1_name, bone2_name):
     return distance
 
 def update_onion_skinning(self, context):
-    bpy.app.timers.register(update_onion_display(self, context), first_interval=0.1)
+    # Pass a lambda so the timer gets a no-argument callable
+    bpy.app.timers.register(do_onion_update, first_interval=0.1)
 
-
-    collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
-    if not collection:
-        return
+def do_onion_update():
     
-    gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
-    if not self.use_onion_skinning:
-        for obj in gp_duplicates:
-            obj.hide_viewport = True
-        self.onion_preview_index = max(0, len(gp_duplicates) - 1)
-        return
-    update_onion_display(self, context)
-    
-def update_onion_display(self, context):
+    context = bpy.context
     settings = context.scene.grease_pencil_face_rig_settings
-    if not settings.use_onion_skinning:
-        return None
     collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+    
     if not collection:
-        return
-    gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
-    if not gp_duplicates:
         return None
     
-    if not settings.use_onion_skinning:
-        for obj in gp_duplicates:
-            obj.hide_viewport = True
-        return None
-    idx = max(0, min(self.onion_preview_index, len(gp_duplicates) - 1))
-    
+    gp_duplicates = [
+        obj for obj in collection.objects 
+        if obj and obj.type == 'GREASEPENCIL'
+    ]
+
+    # Always hide and reset everything
     for obj in gp_duplicates:
-        obj.hide_viewport = True
         obj.hide_set(True)
+        obj.hide_viewport = True
         for layer in obj.data.layers:
             layer.opacity = 1.0
 
-    if gp_duplicates:
-        ghost = gp_duplicates[idx]
-        ghost.hide_set(False)
-        ghost.hide_viewport = False
-        apply_onion_opacity(ghost, settings.onion_opacity)
-    return None
+    if not settings.use_onion_skinning or not gp_duplicates:
+        return None
+
+    # Show the selected onion skin
+    idx = max(0, min(settings.onion_preview_index, len(gp_duplicates) - 1))
+    onion = gp_duplicates[idx]
+    onion.hide_set(False)
+    onion.hide_viewport = False
+    apply_onion_opacity(onion, settings.onion_opacity)
+    
+    return None  # unregisters timer after one run
 
 
-def apply_onion_opacity(onion_gp_obj, opacity):
-    if not onion_gp_obj or onion_gp_obj.type != 'GREASEPENCIL':
+def apply_onion_opacity(ghost_obj, opacity):
+    if not ghost_obj or ghost_obj.type != 'GREASEPENCIL':
         return
-    for layer in onion_gp_obj.data.layers:
+    for layer in ghost_obj.data.layers:
         layer.opacity = opacity
 
+
+def get_onion_max(self):
+    collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+    if not collection:
+        return 0
+    count = len([
+        obj for obj in collection.objects
+        if obj and obj.type == 'GREASEPENCIL'
+        
+    ])
+    return max(0, count -1 )
+
+def get_onion_index(self):
+    # Clamp stored value to valid range
+    max_val = get_onion_max(self)
+    return max(0, min(self.get("onion_preview_index", 0), max_val))
+
+# update callback on the index property also just calls the same function
+def update_onion_index(self, context):
+    
+    
+    bpy.app.timers.register(do_onion_update, first_interval=0.01)
+    
+def set_onion_index(self, value):
+    max_val = get_onion_max(self)
+    self["onion_preview_index"] = max(0, min(value, max_val))
+    # Trigger the update manually since get/set bypasses update callback
+    bpy.app.timers.register(do_onion_update, first_interval=0.01)
+
+
+def update_onion_opacity(self, context):
+    bpy.app.timers.register(do_onion_update, first_interval=0.01)
+
+
+
+
+
+# Main property group for the add-on, storing all relevant settings for the face rig creation and editing process.
 class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
     mouth_shape_name: str
     mouth_shape_name: bpy.props.StringProperty(
@@ -146,11 +179,6 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         default=False,
         update = update_onion_skinning
     )
-    onion_preview_index: bpy.props.IntProperty(
-        name="Index of frames to show in onion skinning",
-        default=0,
-        update=update_onion_skinning
-    )
     onion_opacity: bpy.props.FloatProperty(
         name="Onion Skinning Opacity",
         description="Opacity for onion skinning",
@@ -159,6 +187,14 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         max=1.0,
         update=update_onion_skinning
     )
+    onion_preview_index: bpy.props.IntProperty(
+        name="Preview Shape",
+        default=0,
+        min=0,
+        get=get_onion_index,
+        set=set_onion_index,
+        update=update_onion_index
+    )
     Eye_shape_name: str
     Eye_shape_name: bpy.props.StringProperty(
         name="Eye Shape Name",
@@ -166,26 +202,24 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         default="",
         maxlen=25,
     )
-    rig_mode_shape: bpy.props.EnumProperty(
-        name = "Rig Mode",
-        description = "Currrent Grease Pencil Face Shape mode",
-        items= [('NONE', "None", ""),
-            ('MOUTHS', "Mouth", ""),
-            ('EYES', "Eyes", ""),
-            ('NOSE', "Nose", "")
-        ],
-        default='NONE'
-        # context.scene.face_rig_settings.rig_mode = 'MOUTH' - how to set
-#        settings = context.scene.face_rig_settings
-#        if settings.rig_mode == 'MOUTH':
-#            layout.label(text="Mouth Tools")
-#          how to check it
-    )
+#     rig_mode_shape: bpy.props.EnumProperty(
+#         name = "Rig Mode",
+#         description = "Currrent Grease Pencil Face Shape mode",
+#         items= [('NONE', "None", ""),
+#             ('MOUTHS', "Mouth", ""),
+#             ('EYES', "Eyes", ""),
+#             ('NOSE', "Nose", "")
+#         ],
+#         default='NONE'
+#         # context.scene.face_rig_settings.rig_mode = 'MOUTH' - how to set
+# #        settings = context.scene.face_rig_settings
+# #        if settings.rig_mode == 'MOUTH':
+# #            layout.label(text="Mouth Tools")
+# #          how to check it
+#     )
     
 
-class MouthFrameItem(bpy.types.PropertyGroup):
-    frame_number: bpy.props.IntProperty()
-    mouth_name: bpy.props.StringProperty()
+
 
 class ShrinkwrapSettings(bpy.types.PropertyGroup):
     target_object: bpy.props.PointerProperty(
@@ -1277,24 +1311,6 @@ def create_bone_shape(name, shape_type='CIRCLE', scale=(0.1, 0.1, .1), rotation=
     
     return shape_obj
 
-# def create_bone_label(text, location):
-#     bpy.ops.object.text_add(location=location)
-#     text_obj = bpy.context.active_object
-#     text_obj.data.body = text
-#     text_obj.data.size = 0.1
-#     text_obj.data.align_x = 'CENTER'
-#     text_obj.name = f"Label_{text}"
-#     text_obj.rotation_euler = (1.5707, 0, 0)
-    
-      
-
-#     # Move to BoneShapes collection
-#     shape_collection = bpy.data.collections.get("BoneShapes")
-#     for col in text_obj.users_collection:
-#         col.objects.unlink(text_obj)
-#     shape_collection.objects.link(text_obj)
-
-#     return text_obj
 
 def setup_control_board_shapes(armature):
     main_collection = bpy.data.collections.get("Temp Drawing Collection")
@@ -1325,7 +1341,7 @@ def setup_control_board_shapes(armature):
             "label_scale": (0.5, 0.5, 0.5),
             "color": (0.3, 0.8, 0.3, 1),  # green
             "location": (.5, 0, .24),
-            "scale": (0.3, 0.5, .3),
+            "scale": (.5, 1, 1),
             "rotation": (0, 0, 0),  
         },
         "Label_Face_Main_Control_Board": {
@@ -1334,8 +1350,8 @@ def setup_control_board_shapes(armature):
             "label_scale": (0.2, 0.2, 0.2),
             "color": (0.3, 0.8, 0.3, 1),  # green
             "location": (.5, 0, .1),
-            "scale": (0.3, 0.3, .3),
-            "rotation": (0, 0, 0),
+            "scale": (.5, .5, .5),
+            "rotation": (0,  0, 0),
             
         },
         "Face_Mouth_Canvas": {
@@ -1344,7 +1360,7 @@ def setup_control_board_shapes(armature):
             "label_scale": (0.2, 0.2, 0.2),
             "color": (0.3, 0.3, 1, 1),  # blue
             "location": (.4, 0, -.015),
-            "scale": (0.29, 0.126, .3),
+            "scale": (0.48, 0.3, .3),
             "rotation": (0, 0, 0),
         },
         "Label_Mouth_Position_Control": {
@@ -1361,7 +1377,7 @@ def setup_control_board_shapes(armature):
             "shape": "SQUARE",
             "color": (1, 0.3, 0.3, 1),
             "location": (.5, 0, .24),
-            "scale": (0.06, 0.04, .03),
+            "scale": (0.1, 0.06, 0),
             "rotation": (0, 0, 0),
             "delete_faces": False,
         },
@@ -1431,16 +1447,95 @@ def setup_control_board_shapes(armature):
         # Set bone color group
         pose_bone.color.palette = 'CUSTOM'
         pose_bone.color.custom.normal = settings["color"][:3]
-        
-            
+ 
+
+    
 
 
 # Might have to break these into separate classes for each element
 class CreateRig(bpy.types.Operator):
-    """Create a rig with two bones: one named after the vertex group and the other named root"""
+    """Create the face rig based on the drawn mouth shapes and control board"""
     bl_idname = "object.create_rig"
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
+    
+    bone_definitions={
+        "GP Face Rig Root": {
+            "head": (0, 0, .2),
+            "tail": (0, 0, 1.2),
+            "deform": True,
+        },
+        "GP Mouth Bone": {
+            "head": (0, 0, -0.05),
+            "tail": (0, 0, 0.05),
+            "deform": True,
+        },
+        "control_board": {
+            "head": (0, 0, 0),
+            "tail": (0, 0, 0.2),
+            "deform": False,
+        },
+        "Face_Main_Control_Board": {
+            "head": (.5, 0, .1),
+            "tail": (.5, 0, .3),
+            "deform": False,
+        },
+        "Label_Face_Main_Control_Board": {
+            "head": (.5, 0, .57),
+            "tail": (.5, 0, .77),
+            "deform": False,
+        },
+        "Face_Mouth_Canvas": {
+            "head": (.5, 0, -.24),
+            "tail": (.5, 0, -.14),
+            "deform": False,    
+        },
+        "Face_Mouth_Position_Control": {
+            "head": (.5, 0, -.24),
+            "tail": (.5, 0, -.16),
+            "deform": False,
+        },
+        
+        "Label_Mouth_Position_Control": {
+            "head": (.36, 0, -.08),
+            "tail": (.36, 0, .06),
+            "deform": False,
+        },
+        
+        # These will hold relative distances from the Face_Mouth_Position_Control bone that the hooks will be constrained to, so they dont need to be in exact positions yet, just in the general area of the mouth and evenly spaced.
+        "Hook_Mouth_Top_L": {
+            "head": (.05, 0, .05),
+            "tail": (.05, 0, 0.1),
+            "deform": True,
+        },
+        "Hook_Mouth_Top_C": {
+            "head": (0, 0,  .05),
+            "tail": (0, 0, 0.1),
+            "deform": True,
+        },
+        "Hook_Mouth_Top_R": {
+            "head": (-.05, 0,  .05),
+            "tail": (-.05, 0, 0.1),
+            "deform": True,
+        },
+        "Hook_Mouth_Bot_L": {
+            "head": (.05, 0, -.05),
+            "tail": (.05, 0, -.10),
+            "deform": True,
+        },
+        "Hook_Mouth_Bot_C": {
+            "head": (0, 0, -.05),
+            "tail": (0, 0, -.10),
+            "deform": True,
+        },
+        "Hook_Mouth_Bot_R": {
+            "head": (-.05, 0, -.05),
+            "tail": (-.05, 0, -.10),
+            "deform": True,
+        },
+           
+    }
+        
     
     
     @classmethod
@@ -1512,8 +1607,8 @@ class CreateRig(bpy.types.Operator):
         # from the mouth to be in the center of the head it'll join with
         root_bone = bones[0]
         root_bone.name = "GP Face Rig Root"
-        root_bone.head = (0, 0, 1)
-        root_bone.tail = (0, 0, 2)
+        root_bone.head = self.bone_definitions["GP Face Rig Root"]["head"]
+        root_bone.tail = self.bone_definitions["GP Face Rig Root"]["tail"]
         face_coll.assign(root_bone)
 
         # Create the named bone and place it in middle of Lattice
@@ -1536,39 +1631,39 @@ class CreateRig(bpy.types.Operator):
             self.report({'ERROR'}, f"Collection '{collection_name}' not found.")
             return {'CANCELLED'}
 
-        control_board = None
+        shape_board = None
         puck = None
         for obj in collection.objects:
             if obj.name == "Mouths Control Board Plane":
                 #Change this things name!
-                control_board = obj
+                shape_board = obj
                 obj.hide_viewport = True
             elif obj.name == "Mouth Shape Control Selector":
                 puck = obj
                 puck.hide_viewport =True
             
-        if not control_board or not puck:
-            self.report({'ERROR'}, "Control board or Selector not found in the collection.")
+        if not shape_board or not puck:
+            self.report({'ERROR'}, "Shape board or Selector not found in the collection.")
             return {'CANCELLED'}
         
         
         
         
         # Create the control board bone
-        control_board_bone = bones.new("control_board")
-        control_board_bone.head = control_board.location
-        control_board_bone.tail = (control_board.location.x, control_board.location.y, control_board.location.z + control_board.scale.z)
-        control_board_bone.parent = root_bone
-        control_board_bone.use_connect = False
-        control_board_bone.use_deform = False
-        control_board_bone.show_wire = True
-        mouth_coll.assign(control_board_bone)
+        shape_board_bone = bones.new("shape_board")
+        shape_board_bone.head = shape_board.location
+        shape_board_bone.tail = (shape_board.location.x, shape_board.location.y, shape_board.location.z + shape_board.scale.z)
+        shape_board_bone.parent = root_bone
+        shape_board_bone.use_connect = False
+        shape_board_bone.use_deform = False
+        shape_board_bone.show_wire = True
+        mouth_coll.assign(shape_board_bone)
         
         # Create the puck control bone
         mouth_puck_control_bone = bones.new("mouth_puck_control")
         mouth_puck_control_bone.head = puck.location
         mouth_puck_control_bone.tail = (puck.location.x, puck.location.y, puck.location.z + 0.2)
-        mouth_puck_control_bone.parent = control_board_bone
+        mouth_puck_control_bone.parent = shape_board_bone
         mouth_puck_control_bone.use_connect = False
         mouth_coll.assign(mouth_puck_control_bone)
         
@@ -1584,7 +1679,7 @@ class CreateRig(bpy.types.Operator):
             bpy.ops.object.mode_set(mode='EDIT')
             arm_data = armature.data
     
-            control_board_bone = arm_data.edit_bones.get("control_board")
+            shape_board_bone = arm_data.edit_bones.get("shape_board")
     
         for obj in collection.objects:
             if obj.type == 'GREASEPENCIL':
@@ -1604,8 +1699,8 @@ class CreateRig(bpy.types.Operator):
 #                shrinkwrap.wrap_mode = 'ON_SURFACE'
 #                bpy.ops.object.mode_set(mode='EDIT')
             
-            if control_board_bone:
-                bone.parent = control_board_bone
+            if shape_board_bone:
+                bone.parent = shape_board_bone
     
     # back to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1626,7 +1721,7 @@ class CreateRig(bpy.types.Operator):
                 bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
             if obj.name == "Mouths Control Board Plane":
                 constraint = obj.constraints.new('CHILD_OF')
-                bone_name = "control_board"
+                bone_name = "shape_board"
                 constraint.target = armature
                 constraint.subtarget = bone_name
                 bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
@@ -1647,11 +1742,11 @@ class CreateRig(bpy.types.Operator):
         pose_bones = armature.pose.bones
         # Set custom shapes (ensure you have created custom bone shapes named 'ControlBoardShape' and 'PuckShape')
         if 'Mouths Control Board Plane' in bpy.data.objects:
-            control_board_bone_obj = pose_bones["control_board"]
-            control_board_bone_obj.custom_shape = bpy.data.objects['Mouths Control Board Plane']
+            shape_board_bone_obj = pose_bones["shape_board"]
+            shape_board_bone_obj.custom_shape = bpy.data.objects['Mouths Control Board Plane']
             
-            control_board_bone_obj.use_custom_shape_bone_size = False
-            #for child_bone in control_board_bone_obj.children:
+            shape_board_bone_obj.use_custom_shape_bone_size = False
+            #for child_bone in shape_board_bone_obj.children:
                 # child_bone.bone.hide = True
 
         if 'Mouth Shape Control Selector' in bpy.data.objects:
@@ -1662,7 +1757,7 @@ class CreateRig(bpy.types.Operator):
         
         # Add shrinkwrap constraint to the puck bone
         shrinkwrap = mouth_puck_control_bone_obj.constraints.new('SHRINKWRAP')
-        shrinkwrap.target = control_board
+        shrinkwrap.target = shape_board
         shrinkwrap.wrap_mode = 'ON_SURFACE'
         # shrinkwrap.use_keep_above_surface = True
 
@@ -1734,7 +1829,7 @@ class CreateRig(bpy.types.Operator):
 
         
          # Ensure the control board and puck bones follow the objects
-        control_board_bone_obj = armature.pose.bones["control_board"]
+        shape_board_bone_obj = armature.pose.bones["shape_board"]
         mouth_puck_control_bone_obj = armature.pose.bones["mouth_puck_control"]
         
         childof_puck = puck.constraints.new('CHILD_OF')
@@ -1762,6 +1857,7 @@ class CreateRig(bpy.types.Operator):
             
             edit_bones = armature.data.edit_bones
             
+            #Direct Lattice Control Bones
             bone_positions = {
             
                 "Mouth_Top_L":     ((.08, 0, .02), (.08, 0, 0.04)),
@@ -1834,31 +1930,31 @@ class CreateRig(bpy.types.Operator):
         
              
             # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
-            # Create Mouth Face Rig Control Panel
+            ##### Create Mouth Face Rig Control Panel #####
             #Create control bones
             bpy.ops.object.mode_set(mode='OBJECT')
             bpy.context.view_layer.objects.active = armature
             bpy.ops.object.mode_set(mode='EDIT')
             #Main control Board
             main_control_bone = edit_bones.new("Face_Main_Control_Board")
-            main_control_bone.head = (.5, 0, .1)
-            main_control_bone.tail = (.5, 0, .3)
+            main_control_bone.head = self.bone_definitions["Face_Main_Control_Board"]["head"]
+            main_control_bone.tail = self.bone_definitions["Face_Main_Control_Board"]["tail"]
             main_control_bone.parent = edit_bones.get("GP Face Rig Root")
             main_control_bone.use_connect = False
             mouth_coll.assign(main_control_bone)
             
             #Main Control Board Label
             main_control_label_bone = edit_bones.new("Label_Face_Main_Control_Board")
-            main_control_label_bone.head = (.5, 0, .3)
-            main_control_label_bone.tail = (.5, 0, .5)
+            main_control_label_bone.head = self.bone_definitions["Label_Face_Main_Control_Board"]["head"]
+            main_control_label_bone.tail = self.bone_definitions["Label_Face_Main_Control_Board"]["tail"]
             main_control_label_bone.parent = edit_bones.get("Face_Main_Control_Board")
             main_control_label_bone.use_connect = False
             mouth_coll.assign(main_control_label_bone)
             
             #Canvas bone
             mouth_position_canvas_bone = edit_bones.new("Face_Mouth_Canvas")
-            mouth_position_canvas_bone.head = (.5, 0, -.08)
-            mouth_position_canvas_bone.tail = (.5, 0, 0.15) 
+            mouth_position_canvas_bone.head = self.bone_definitions["Face_Mouth_Canvas"]["head"]
+            mouth_position_canvas_bone.tail = self.bone_definitions["Face_Mouth_Canvas"]["tail"]
             mouth_position_canvas_bone.parent = main_control_bone
             mouth_position_canvas_bone.use_connect = False
             mouth_coll.assign(mouth_position_canvas_bone)
@@ -1866,16 +1962,16 @@ class CreateRig(bpy.types.Operator):
            
             #Mouth position controller
             mouth_position_control_bone = edit_bones.new("Face_Mouth_Position_Control")
-            mouth_position_control_bone.head = (.5, 0, -.08)
-            mouth_position_control_bone.tail = (.5, 0, 0) 
+            mouth_position_control_bone.head = self.bone_definitions["Face_Mouth_Position_Control"]["head"]
+            mouth_position_control_bone.tail = self.bone_definitions["Face_Mouth_Position_Control"]["tail"] 
             mouth_position_control_bone.parent = mouth_position_canvas_bone
             mouth_position_control_bone.use_connect = False
             mouth_coll.assign(mouth_position_control_bone)
             
             #Mouth Position Label Bone
             mouth_label_bone = edit_bones.new("Label_Mouth_Position_Control")
-            mouth_label_bone.head = (.45, 0, -.014)
-            mouth_label_bone.tail = (.45, 0, 0.06)
+            mouth_label_bone.head = self.bone_definitions["Label_Mouth_Position_Control"]["head"]
+            mouth_label_bone.tail = self.bone_definitions["Label_Mouth_Position_Control"]["tail"]
             mouth_label_bone.parent = mouth_position_canvas_bone
             mouth_label_bone.use_connect = False
             mouth_coll.assign(mouth_label_bone)
@@ -1893,12 +1989,12 @@ class CreateRig(bpy.types.Operator):
             
             control_hook_bone_positions = {
             
-                "Mouth_Top_L":     ((.55, 0, -.05), (.55, 0, 0)),
-                "Mouth_Top_C":     ((.5, 0,  -.05),    (.5, 0, 0)),
-                "Mouth_Top_R":     ((.45, 0,  -.05),  (.45, 0, 0)),
-                "Mouth_Bot_L":     ((.55, 0, -.11), (.55, 0, -.06)),
-                "Mouth_Bot_C":     ((.5, 0, -.11),    (.5, 0, -.06)),
-                "Mouth_Bot_R":     ((.45, 0, -.11),  (.45, 0, -.06)),
+                "Mouth_Top_L":     (self.bone_definitions["Hook_Mouth_Top_L"]["head"], self.bone_definitions["Hook_Mouth_Top_L"]["tail"]),
+                "Mouth_Top_C":     (self.bone_definitions["Hook_Mouth_Top_C"]["head"], self.bone_definitions["Hook_Mouth_Top_C"]["tail"]),
+                "Mouth_Top_R":     (self.bone_definitions["Hook_Mouth_Top_R"]["head"], self.bone_definitions["Hook_Mouth_Top_R"]["tail"]),
+                "Mouth_Bot_L":     (self.bone_definitions["Hook_Mouth_Bot_L"]["head"], self.bone_definitions["Hook_Mouth_Bot_L"]["tail"]),
+                "Mouth_Bot_C":     (self.bone_definitions["Hook_Mouth_Bot_C"]["head"], self.bone_definitions["Hook_Mouth_Bot_C"]["tail"]),
+                "Mouth_Bot_R":     (self.bone_definitions["Hook_Mouth_Bot_R"]["head"], self.bone_definitions["Hook_Mouth_Bot_R"]["tail"]),
                 #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
             
             }
@@ -1908,7 +2004,10 @@ class CreateRig(bpy.types.Operator):
                 hook_control_bone_name = bone_name.replace("Mouth_", "Hook_Mouth_")
                 if hook_control_bone_name not in edit_bones:
                     bone = edit_bones.new(hook_control_bone_name)
-                    bone.head = head
+                    # Get relative positions and add them to the Face_Mouth_Position_Control bone's head and tail positions
+                    head = tuple(Vector(head) + Vector((self.bone_definitions["Face_Mouth_Position_Control"]["head"])))
+                    tail = tuple(Vector(tail) + Vector((self.bone_definitions["Face_Mouth_Position_Control"]["tail"])))
+                    bone.head = head 
                     bone.tail = tail
                     bone.parent = edit_bones.get("Face_Mouth_Position_Control")  
                     mouth_coll.assign(bone)
@@ -1922,16 +2021,23 @@ class CreateRig(bpy.types.Operator):
                     copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
                     copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
             
-            #Clean up: Hide all helper bones, change collection names, etc
+            #Clean up: Delete all helper objects, change collection names, reset modes, and parent the armature to the main control board
             setup_control_board_shapes(armature)
             
             main_drawing_collection = bpy.data.collections.get("Temp Drawing Collection") 
             main_drawing_collection.name = "GP Face Rig Drawing Collection"
-              
+            context.scene.has_setup_been_run = False
+            context.scene.gp_face_mode = 'NONE'
+            obj = bpy.data.objects.get("GP Temp Face Object")
+            if obj:
+                obj.name = "GP Face Rig Main Mouth"
+                obj.parent = armature
             
-
-        
-            self.report({'INFO'}, "Rig created with two bones.")
+            deleteobj = bpy.data.objects.get("Target Face Drawing Plane")
+            if deleteobj:
+                bpy.data.objects.remove(deleteobj, do_unlink=True)
+            armature.name = "GP Mouth Rig"
+            self.report({'INFO'}, "Rig successfully created.")
             return {'FINISHED'}
         
 
@@ -2054,12 +2160,13 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
             col.operator(SetUp.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
             # Step 2: Draw Facial Features by each feature
             col = layout.column(align=True)
+            col.separator()
             col.label(text="2. Draw Features")
             row = layout.row(align=True)
             if context.scene.has_setup_been_run:
-                layout.separator()
+                # layout.separator()
                 row = layout.row(align=True)
-                row.scale_y = 1.2
+                # row.scale_y = 1.2
                 # row.operator(ViewCenterOriginEyes.bl_idname, text="Create Eye Shapes", icon = 'HIDE_OFF')
                 # row = layout.row(align=True)
                 row.scale_y = 1.2
@@ -2099,10 +2206,15 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         
         ## Mouths Create UI
         if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTHS':
+            
             col.label(text= "Draw Mouth Shapes")
-            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            
+            col.label(text="Enter Mouth Shape Name:")
             row = col.row()
-            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name")
+            
+            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name", text="")
+            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
+            
             col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
             col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
             collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
@@ -2113,28 +2225,32 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
                     col.prop(settings, "use_onion_skinning", toggle = True, icon='ONIONSKIN_ON' if context.scene.use_onion_skinning else 'ONIONSKIN_OFF')
                 
             if settings.use_onion_skinning:
+                col = layout.column()
+                col.prop(settings, "onion_preview_index", text="Shape", slider =False, icon='GREASEPENCIL')
                 
-                col = layout.column(align=True)
-                col.prop(settings, "onion_preview_index", text="Preview Shape", slider=True)
+                
+                # Show current shape name
                 collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
                 if collection:
                     gp_duplicates = [
                         obj for obj in collection.objects
-                        if obj.type == 'GREASEPENCIL'
+                        if obj and obj.type == 'GREASEPENCIL'
+                        
                     ]
-                idx = settings.onion_preview_index
-                if gp_duplicates and 0 <= idx < len(gp_duplicates):
-                    col.label(text=f"Showing: {gp_duplicates[idx].name}", icon='GREASEPENCIL')
-                
-                
-                
-                col.prop(settings, "onion_opacity", text="Onion Opacity", slider=True)
-                row = col.row(align=True)
-                prev = row.operator("my.onion_navigate", text="Previous", icon='TRIA_LEFT')
-                prev.direction = -1
-                next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT')
-                next.direction = 1
-
+                    idx = settings.onion_preview_index
+                    if gp_duplicates and 0 <= idx < len(gp_duplicates):
+                        col.label(
+                            text=f"Showing: {gp_duplicates[idx].name}", 
+                            icon='GREASEPENCIL'
+                        )
+                    
+                    row = layout.row(align=True)
+                    op_prev = row.operator("my.onion_navigate", text="Previous", icon='TRIA_LEFT')
+                    op_prev.direction = -1
+                    op_next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT', emboss=True)
+                    op_next.direction = 1
+                col = layout.column()
+                col.prop(settings, "onion_opacity", slider=True)
                     # Need to check if the correct properties are being made, might be a duplicate in the registration?
                     #Need Onion naviagtion operator -- 
                     # Also needto make sure we scalew the gp_duplicates during the FINAL arrangement, not before as it is now
@@ -2189,7 +2305,6 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
 classes = (
     GreasePencilFaceRigSettings,
     ShrinkwrapSettings,
-    MouthFrameItem,
     FinishMouthShape,
     SetUp,
     ViewCenterOriginMouths,
@@ -2251,7 +2366,7 @@ def register():
     bpy.types.Scene.eye_collection = bpy.props.CollectionProperty(type=EyeItem)
     bpy.types.Scene.active_eye_index = bpy.props.IntProperty(default=0)
     bpy.types.Scene.use_onion_skinning = bpy.props.BoolProperty(name="Enable Onion Skinning", default=False)
-    bpy.types.Scene.mouth_frame_map = bpy.props.CollectionProperty(type=MouthFrameItem)
+    
 
 def unregister():
     for cls in reversed(classes):
