@@ -1114,7 +1114,7 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             # Create a puck (mesh circle) and place it on top of the first duplicated object
             first_dup_obj = collection.objects[0] if collection.objects else None
             if first_dup_obj:
-                bpy.ops.mesh.primitive_circle_add(fill_type='NGON', vertices=16, radius=0.1, location=(
+                bpy.ops.mesh.primitive_circle_add(fill_type='NGON', vertices=16, radius=0.035, location=(
                 first_dup_obj.location.x, first_dup_obj.location.y, first_dup_obj.location.z), rotation=(1.5708, 0, 0))
                 puck = context.active_object
                 puck.name = "Mouth Shape Control Selector"
@@ -2075,6 +2075,7 @@ class CreateRig(bpy.types.Operator):
              # Parent the armature to the main control board bone
             armature.name = "GP Mouth Rig"
             tag_rig(armature)
+            context.scene.rig_created = True
             self.report({'INFO'}, "Rig successfully created.")
             return {'FINISHED'}
         
@@ -2329,7 +2330,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         
         #Step 5: Append to other rig
         col = layout.column(align=True)
-        col.enabled = context.scene.has_setup_been_run
+        col.enabled = context.scene.rig_created
         col.label(text="5. Append Face Rig to an existing character rig")
         rig = bpy.data.objects.get("GP Mouth Rig")
         if rig:
@@ -2344,7 +2345,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         # Step 6: Bind to 3d object
         col = layout.column(align=True)
         col.label(text="6. (Optional) Bind face rig to a 3D Object")
-        col.enabled = context.scene.has_setup_been_run
+        col.enabled = context.scene.rig_created
         lattice = bpy.data.objects.get("GPMouthLattice")
         settings = context.scene.shrinkwrap_settings
         layout.prop(settings, "target_object", icon = 'MESH_DATA')
@@ -2449,7 +2450,8 @@ def register():
     bpy.types.Scene.active_eye_index = bpy.props.IntProperty(default=0)
     bpy.types.Scene.use_onion_skinning = bpy.props.BoolProperty(name="Enable Onion Skinning", default=False)
     bpy.types.Scene.target_rig_settings = bpy.props.PointerProperty(type = TargetRigSettings)
-
+    bpy.types.Scene.rig_created = bpy.props.BoolProperty(name="Rig Created", default=False)
+    
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
@@ -2463,6 +2465,9 @@ def unregister():
     del bpy.types.Scene.has_setup_been_run
     del bpy.types.Scene.shrinkwrap_settings
     del bpy.types.Scene.target_rig_settings
+    del bpy.types.Scene.use_onion_skinning
+    del bpy.types.Scene.number_of_eyes
+    del bpy.types.Scene.rig_created
 
 if __name__ == "__main__":
     register()
