@@ -8,21 +8,30 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
+# Current work flow:
+# 1. Start Rig
+# 2. Draw Features
+# 3. Build Rig
+# 4. Finalize
+# 5. Append
+# 6. Shrinkwrap
+
+# Create Tab (Currently only tab): No tracking of the rig, just create it.
+# Edit Tab: Will find and identify which rigs the user wants to edit based on custom props - stateful UI 
+# Misc Tab: No clue right now
+
 # Current missing features for mouths: 
-# Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made
-# Rig ID
+# Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made -DONE
+# Rig ID - custom props added, need to be used more effeectively
 # Cleanup UI, bone sizes/placements and logic to make sure its airtight
-# Edit button?
+# Edit button? - To be added later
 # # Use Lights Button
-# Append to rig?
+# Append to rig? - Working on it
 
 # Current Issues for Eyes
  #Not yet implemented
 
-
- 
-
-# show hidden bones button? 
+# show hidden bones button? - Maybe located in edit mode?
  
 # Set Interpolation Mode for keyframes to constant for mouth puck
 
@@ -81,10 +90,18 @@ def tag_rig(armature):
     
     
 #Find the rig using custom properties rather than name to avoid issues with multiple rigs
-def find_rig():
+def find_rig(context):
     for obj in bpy.data.objects:
         if obj.type == 'ARMATURE' and obj.get("is_Atta_gp_face_rig"):
             return obj
+    return None
+
+def get_face_rig_from_selection(context):
+    obj = context.active_object
+    if not obj:
+        return None
+    if obj.type == 'ARMATURE' and obj.get("is_Atta_gp_face_rig"):
+        return obj
     return None
 
 def get_bone_distance(armature, bone1_name, bone2_name):
@@ -235,9 +252,6 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
 # #          how to check it
 #     )
     
-
-
-
 class ShrinkwrapSettings(bpy.types.PropertyGroup):
     target_object: bpy.props.PointerProperty(
         name="Shrinkwrap Target",
@@ -335,9 +349,7 @@ class SetUp(bpy.types.Operator):
         
         return {'FINISHED'}
     
-    
-
-         
+     
 ############################### EYES ########################
 
 # Notes for eyes:
@@ -359,16 +371,12 @@ class SetUp(bpy.types.Operator):
 #Eye lids/base shape - think of the eye "outline"
 #Sclera
 
-
 class EyeItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(default="Eye")
     gp_object: bpy.props.PointerProperty(type=bpy.types.Object)
     mirror: bpy.props.BoolProperty(default=True)
     active_layer: bpy.props.StringProperty(default="sclera")
     
-
-
-
 class FinishEyeShape(bpy.types.Operator):
     """Duplicate Eye drawings, scale, move them to correct locations on control board"""
     bl_idname = "grease_pencil.finish_eye_shapes"
@@ -383,9 +391,6 @@ class FinishEyeShape(bpy.types.Operator):
     def execute(self, context):
         return
     
-
-    
-
 
 
 class ViewCenterOriginEyes(bpy.types.Operator):
@@ -2083,7 +2088,44 @@ class CreateRig(bpy.types.Operator):
         self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
         return {'CANCELLED'}
     
+class MY_OT_finalize_rig(bpy.types.Operator):
+    """Finalize the rig by applying the shrinkwrap modifier and cleaning up any remaining helper objects"""
+    bl_idname = "object.finalize_rig"
+    bl_label = "Finalize Rig"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
 
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def execute(self, context):
+        face_rig = find_rig(context)
+        if not face_rig:
+            self.report({'ERROR'}, "No valid face rig found.")
+            return {'CANCELLED'}
+        
+        name = self.rig_name
+        renames = {
+            "GP Mouth Rig": f"{name}_Mouth_Rig",
+            "Mouth Shapes Control Plane": f"{name}_Mouth_Shapes_Control_Plane",
+            "Mouth Shape Control Selector": f"{name}_Mouth_Shape_Control_Selector",
+            "GP Face Rig Drawing Collection": f"{name}_Face_Rig_Collection",
+            "Mouth Rig Control Board Objects": f"{name}_Control_Board_Collection",
+            "BoneShapes": f"{name}_BoneShapes",
+        }
+        
+        for old_name, new_name in renames.items():
+            obj = bpy.data.objects.get(old_name)
+            if obj:
+                obj.name = new_name
+                
+        for collection in bpy.data.collections:
+            if collection.name in renames:
+                collection.name = renames[collection.name]
+        
+        self.report({'INFO'}, "Rig finalized and renamed successfully.")
+        return {'FINISHED'}
     
 class MY_OT_apply_shrinkwrap(bpy.types.Operator):
     """Bind the face rig to a 3D object using the vertex group created from the grease pencil layers"""
@@ -2198,8 +2240,6 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     bl_label = "Grease Pencil Face Rig Workflow"
     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
     
-    
-
     def draw(self, context):
         
         scn = context.scene
@@ -2240,10 +2280,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
                 layout.separator()     
             
             col.alert = False
-            
 
-        
-        
         
         col = layout.column(align=True)
         # Eyes Create UI        
@@ -2327,6 +2364,11 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         col.label(text="4. Finalize")
         col.enabled = context.scene.has_setup_been_run
         col.operator(CreateRig.bl_idname, text="Create Rig")
+        col = layout.column(align=True)
+        col.enabled = context.scene.rig_created
+        col.operator(MY_OT_finalize_rig.bl_idname, text="Finalize Rig (Rename & Clean Up)")
+        
+        
         
         #Step 5: Append to other rig
         col = layout.column(align=True)
@@ -2371,15 +2413,6 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         layout.label(text="Tips: Use the 'Above Surface' option in the shrinkwrap modifier to prevent clipping, and adjust the offset value to find the sweet spot for your model.", icon='INFO')
         layout.label(text="You can also manually adjust the lattice's shrinkwrap modifier using the modifier panel on the Lattice.", icon='INFO')
                        
-        
-        
-
-
-
-
-
-
-
 # Registration
 
 classes = (
@@ -2394,6 +2427,7 @@ classes = (
     GP_PT_Face_Rig_Workflow_Panel,
     GPAddNewLayer,
     CreateRig,
+    MY_OT_finalize_rig,
     MY_OT_apply_shrinkwrap,
     GPDoneDrawingMouth,
     EyeItem,
