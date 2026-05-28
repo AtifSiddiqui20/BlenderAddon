@@ -268,6 +268,12 @@ class ShrinkwrapSettings(bpy.types.PropertyGroup):
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'MESH'
     )
+    target_lattice: bpy.props.PointerProperty(
+        name="Shrinkwrap Lattice",
+        description="Lattice to use for deformation (optional)",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'LATTICE'
+    )
     wrap_method: bpy.props.EnumProperty(
      name = "Shrinkwrap Method",
      items = [('NEAREST_SURFACEPOINT', "Nearest Surface Point", ""),
@@ -306,7 +312,7 @@ class TargetRigSettings(bpy.types.PropertyGroup):
     target_rig: bpy.props.PointerProperty(
         name="Target Rig",
         description="The existing rig to append to",
-        type=bpy.types.Armature,
+        type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
     head_bone_name: bpy.props.PointerProperty(
@@ -2182,10 +2188,12 @@ class MY_OT_apply_shrinkwrap(bpy.types.Operator):
 
     def execute(self, context):
         settings = context.scene.shrinkwrap_settings
-        lattice = bpy.data.objects.get("GPMouthLattice")
+    
+        
+        lattice = settings.target_lattice
         
         if not lattice:
-            self.report({'ERROR'}, "Lattice object 'GPMouthLattice' not found.")
+            self.report({'ERROR'}, f"Lattice object '{name}_Mouth_Lattice' not found.")
             return {'CANCELLED'}
         if not settings.target_object:
             self.report({'ERROR'}, "No target object selected.")
@@ -2288,178 +2296,168 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
     
     def draw(self, context):
-        
-        scn = context.scene
         layout = self.layout
-        # box = layout.box()
-        # Dev mode info for testing - will remove later
-        # box.label(text=f"State: {scn.gp_face_mode}")
-        # box.label(text=f"Mode: {context.mode}")
         obj = context.object
         settings = context.scene.grease_pencil_face_rig_settings
-        
-        
-        # Step 1: Create or Edit Rig
-        row = layout.row(align=True)
-        #row.prop(scn, "gp_active_tab", expand=True)
-        row.scale_y = 1.2 
-        #if context.scene.gp_active_tab != 'CREATE':
-            #return
-        if context.mode not in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}:
-            col = layout.column(align=True)
-        
-            col.label(text="1. Start")
-            col.alert = True
-            col.operator(SetUp.bl_idname, text="Create a new GP mouth Rig", icon='FILE_NEW')
-            #col.operator(SetUp.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
-            # Step 2: Draw Facial Features by each feature
-            col = layout.column(align=True)
-            col.separator()
-            col.label(text="2. Draw Features")
-            row = layout.row(align=True)
-            if context.scene.has_setup_been_run:
-                # layout.separator()
-                row = layout.row(align=True)
-                # row.scale_y = 1.2
-                # row.operator(ViewCenterOriginEyes.bl_idname, text="Create Eye Shapes", icon = 'HIDE_OFF')
-                # row = layout.row(align=True)
-                row.scale_y = 1.2
-                row.operator(ViewCenterOriginMouths.bl_idname, text="Create Mouth Shapes", icon = 'FILE_NEW')
-                layout.separator()     
-            
-            col.alert = False
+        scn = context.scene
 
         
-        col = layout.column(align=True)
-        # Eyes Create UI        
-        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'EYES':
-            col.label(text= "Draw Eye Shapes")
-            layout.prop(context.scene, "number_of_eyes")
-            layout.label(text="Coming soon!!!")   
-            steps = ["sclera", "iris", "pupil", "eyelid_upper", "eyelid_lower"]
+        is_drawing = context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'}
+        is_drawing_mouths = is_drawing and scn.gp_face_mode == 'MOUTHS'
+        is_drawing_eyes = is_drawing and scn.gp_face_mode == 'EYES'
+        has_setup = scn.has_setup_been_run
+        has_rig = scn.rig_created
 
-            # active_eye = scn.eye_collection[scn.active_eye_index]
-
-            # for step in steps:
-            #     row = layout.row()
-            #     is_active = (active_eye.active_layer == step)  # ← from eye item, not scene
-            #     row.enabled = not is_active
-            #     op = row.operator("my.set_eye_layer", text=step.replace("_", " ").title())
-            #     op.layer_name = step
-            col.operator(GoBackToHome.bl_idname, text="Go Back")
-            # col.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            # row = col.row()
-            # row.prop(context.scene.grease_pencil_face_rig_settings, "eye_shape_name")
-            
-            #col.operator(FinishEyeShape.bl_idname, text="Finish Eye Shape")
-            #col.operator(GPDoneDrawingEyes.bl_idname, text="Done")
-            
+        collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+        has_mouth_shapes = bool(
+            collection and any(o.type == 'GREASEPENCIL' for o in collection.objects)
+        )
         
-        ## Mouths Create UI
-        if obj and obj.type == 'GREASEPENCIL' and context.mode in {'PAINT_GREASE_PENCIL', 'EDIT_GREASE_PENCIL'} and context.scene.gp_face_mode == 'MOUTHS':
+        lattice = bpy.data.objects.get("GPMouthLattice")
+        rig = bpy.data.objects.get("GP Mouth Rig")
+        rig_settings = context.scene.target_rig_settings
+        shrinkwrap_settings = context.scene.shrinkwrap_settings
+
+        # -------------------------
+        # STEP 1 — Start
+        # -------------------------
+        
+        box = layout.box()
+        row = box.row()
+        row.label(text="1. Start", icon='FILE_NEW')
+        
+        row = box.row()
+        row.enabled = not has_setup  # grey out once setup is done
+        row.operator(SetUp.bl_idname, text="Create New GP Mouth Rig", icon='FILE_NEW')
+
+        # -------------------------
+        # STEP 2 — Draw Features
+        # -------------------------
+        
+        box = layout.box()
+        row = box.row()
+        row.label(text="2. Draw Features", icon='GREASEPENCIL')
+
+        # Create Mouth Shapes button — greyed out if setup not done or currently drawing
+        row = box.row()
+        row.enabled = has_setup and not is_drawing
+        row.operator(
+            ViewCenterOriginMouths.bl_idname, 
+            text="Create Mouth Shapes", 
+            icon='FILE_NEW'
+        )
+
+        # -------------------------
+        # STEP 3 — Drawing Controls
+        # Only visible while actively drawing mouths
+        # -------------------------
+        
+        
+        if is_drawing_mouths:
+            box = layout.box()
+            box.label(text="3. Drawing Controls", icon='BRUSH_DATA')
+
+            box.label(text="Mouth Shape Name:")
+            box.prop(settings, "mouth_shape_name", text="")
             
-            col.label(text= "Draw Mouth Shapes")
+            box.operator(GPAddNewLayer.bl_idname, text="New Layer", icon='ADD')
+            box.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape", icon='CHECKMARK')
             
-            col.label(text="Enter Mouth Shape Name:")
-            row = col.row()
-            
-            row.prop(context.scene.grease_pencil_face_rig_settings, "mouth_shape_name", text="")
-            col.operator(GPAddNewLayer.bl_idname, text="New Layer")
-            
-            col.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape")
-            col.operator(GPDoneDrawingMouth.bl_idname, text="Done")
-            collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
-            if collection:
-                gp_duplicates = [obj for obj in collection.objects if obj.type == 'GREASEPENCIL']
-                if gp_duplicates:
-                    col.label(text = "Onion skinning", icon = 'ONIONSKIN_ON' if context.scene.use_onion_skinning else 'ONIONSKIN_OFF')
-                    col.prop(settings, "use_onion_skinning", toggle = True, icon='ONIONSKIN_ON' if context.scene.use_onion_skinning else 'ONIONSKIN_OFF')
-                
-            if settings.use_onion_skinning:
-                col = layout.column()
-                col.prop(settings, "onion_preview_index", text="Shape", slider =False, icon='GREASEPENCIL')
-                
-                
-                # Show current shape name
-                collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
-                if collection:
-                    gp_duplicates = [
-                        obj for obj in collection.objects
-                        if obj and obj.type == 'GREASEPENCIL'
-                        
-                    ]
+            box.separator()
+            box.operator(GPDoneDrawingMouth.bl_idname, text="Done Drawing", icon='EXPORT')
+
+            # Onion skinning — only show if there are shapes to preview
+            if has_mouth_shapes:
+                box.separator()
+                row = box.row()
+                icon = 'ONIONSKIN_ON' if settings.use_onion_skinning else 'ONIONSKIN_OFF'
+                row.prop(settings, "use_onion_skinning", text="Onion Preview", toggle=True, icon=icon)
+
+                if settings.use_onion_skinning:
+                    col = box.column(align=True)
+                    col.prop(settings, "onion_preview_index", text="Shape", slider=False)
+                    
+                    gp_duplicates = [o for o in collection.objects if o.type == 'GREASEPENCIL']
                     idx = settings.onion_preview_index
                     if gp_duplicates and 0 <= idx < len(gp_duplicates):
-                        col.label(
-                            text=f"Showing: {gp_duplicates[idx].name}", 
-                            icon='GREASEPENCIL'
-                        )
-                    
-                    row = layout.row(align=True)
+                        col.label(text=f"Showing: {gp_duplicates[idx].name}", icon='GREASEPENCIL')
+
+                    row = box.row(align=True)
                     op_prev = row.operator("my.onion_navigate", text="Previous", icon='TRIA_LEFT')
                     op_prev.direction = -1
-                    op_next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT', emboss=True)
+                    op_next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT')
                     op_next.direction = 1
-                col = layout.column()
-                col.prop(settings, "onion_opacity", slider=True)
-                    # Need to check if the correct properties are being made, might be a duplicate in the registration?
-                    #Need Onion naviagtion operator -- 
-                    # Also needto make sure we scalew the gp_duplicates during the FINAL arrangement, not before as it is now
-        #col.operator("grease_pencil.draw_mouth", text="Draw Mouth")
-            
-        # Step 4: Create Rig
-        col = layout.column(align=True)
-        col.label(text="4. Finalize")
-        col.enabled = context.scene.has_setup_been_run
-        col.operator(CreateRig.bl_idname, text="Create Rig")
-        col = layout.column(align=True)
+
+                    box.prop(settings, "onion_opacity", slider=True)
+
+        elif is_drawing_eyes:
+            box = layout.box()
+            box.label(text="3. Drawing Controls", icon='BRUSH_DATA')
+            box.label(text="Eyes coming soon!")
+            box.operator(GoBackToHome.bl_idname, text="Go Back")
+
+        # -------------------------
+        # STEP 4 — Finalize / Create Rig
+        # -------------------------
+        
+        box = layout.box()
+        row = box.row()
+        row.label(text="4. Finalize", icon='ARMATURE_DATA')
+
+        row = box.row()
+        row.enabled = has_setup and not is_drawing  # grey if not ready or still drawing
+        row.operator(CreateRig.bl_idname, text="Create Rig", icon='ARMATURE_DATA')
+
+        # -------------------------
+        # STEP 5 — Append to existing rig
+        # -------------------------
+        
+        box = layout.box()
+        row = box.row()
+        row.label(text="5. Append to Character Rig", icon='LINKED')
+
+        col = box.column()
+        col.enabled = has_rig  # grey until rig is created
+
+        rig = find_rig(context)
+        if has_rig and rig:
+            col.prop(rig_settings, "target_rig", icon='ARMATURE_DATA')
+            if rig_settings.target_rig:
+                col.operator(MY_OT_append_to_rig.bl_idname, text="Append to Existing Rig")
+            else:
+                col.label(text="Select a character rig above", icon='INFO')
+        else:
+            col.label(text="Create the rig first (Step 4)", icon='INFO')
+
+        # -------------------------
+        # STEP 6 — Shrinkwrap
+        # -------------------------
+        
+        box = layout.box()
+        row = box.row()
+        row.label(text="6. Bind to 3D Object (Optional)", icon='MOD_SHRINKWRAP')
+
+        col = box.column()
+        col.enabled = has_rig
+
+        
+        col.label(text="Choose shrinkwrap target mesh and lattice, then apply modifier to bind rig to the surface.", icon='INFO')
+        col.prop(shrinkwrap_settings, "target_lattice")
+        col.prop(shrinkwrap_settings, "target_object", icon='MESH_DATA')
         
         
-        
-        
-        #Step 5: Append to other rig
-        col = layout.column(align=True)
-        col.enabled = context.scene.rig_created
-        col.label(text="5. Append Face Rig to an existing character rig")
-        rig = bpy.data.objects.get("GP Mouth Rig")
-        if rig:
-            rig_settings = context.scene.target_rig_settings
-            layout.prop(rig_settings, "target_rig", icon='ARMATURE_DATA')
-            if not rig_settings.target_rig:
-                col.label(text="Select an existing  character rig to append the face rig to.", icon='INFO')
-                return
-            layout.separator()
-            col.operator(MY_OT_append_to_rig.bl_idname, text="Append to an Existing Rig")
-        
-        # Step 6: Bind to 3d object
-        col = layout.column(align=True)
-        col.label(text="6. (Optional) Bind face rig to a 3D Object")
-        col.enabled = context.scene.rig_created
-        lattice = bpy.data.objects.get("GPMouthLattice")
-        settings = context.scene.shrinkwrap_settings
-        layout.prop(settings, "target_object", icon = 'MESH_DATA')
-        if not settings.target_object:
-            col.label(text="Select a target object to bind the lattice to.", icon='INFO')
-            return
-        layout.separator()
-        layout.operator(MY_OT_apply_shrinkwrap.bl_idname, text="Apply Shrinkwrap Modifier")
-        if not lattice or not lattice.modifiers.get("Shrinkwrap"):
-            col.label(text="Lattice or Shrinkwrap modifier not found. Ensure you have a lattice named 'GPMouthLattice' and have applied the rig creation step.", icon='ERROR')
-            return
-        
-        layout.separator()
-        layout.label(text="After applying, adjust the shrinkwrap settings in the lattice's modifier panel as needed.)", icon='INFO')
-        # layout.prop(settings, "wrap_method")
-        # layout.prop(settings, "wrap_mode")
-        # layout.prop(settings, "offset")
-        # if settings.wrap_method == 'PROJECT':
-        #     row=layout.row()
-        #     layout.prop(settings, "use_negative_direction")
-        #     layout.prop(settings, "use_positive_direction")
-        # layout.separator()
-        layout.label(text="Tips: Use the 'Above Surface' option in the shrinkwrap modifier to prevent clipping, and adjust the offset value to find the sweet spot for your model.", icon='INFO')
-        layout.label(text="You can also manually adjust the lattice's shrinkwrap modifier using the modifier panel on the Lattice.", icon='INFO')
-                       
+        if shrinkwrap_settings.target_object and shrinkwrap_settings.target_lattice:
+            col.operator(
+                MY_OT_apply_shrinkwrap.bl_idname, 
+                text="Apply Shrinkwrap Modifier"
+            )
+            if lattice and lattice.modifiers.get("Shrinkwrap"):
+                col.label(text="Use 'Above Surface' to prevent clipping", icon='INFO')
+            else:
+                col.label(text="Shrinkwrap settings can be found in the lattice's modifier panel.", icon='INFO')
+        else:
+            col.label(text="Select a target mesh above", icon='INFO')              
+
 # Registration
 
 classes = (
