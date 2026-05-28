@@ -66,6 +66,8 @@ bl_info = {
 
 
 
+from asyncio import sleep
+import asyncio
 from email.mime import text
 
 import bpy
@@ -87,7 +89,7 @@ def tag_rig(armature):
         return
     armature["is_Atta_gp_face_rig"] = True
     armature["rig_version"] = (0, 0, 1)  # Example versioning, can be updated as needed
-    
+    armature["rig_name"] = armature.name  # Store the name that the user enters
     
 #Find the rig using custom properties rather than name to avoid issues with multiple rigs
 def find_rig(context):
@@ -205,6 +207,13 @@ class GreasePencilFaceRigSettings(bpy.types.PropertyGroup):
         name="Mouth Shape Name",
         description="Enter a name for the mouth shape",
         default="",
+        maxlen=25,
+    )
+    rig_name: str
+    rig_name: bpy.props.StringProperty(
+        name="Rig Name",
+        description="Enter a name for the rig (used for organization, not object naming)",
+        default="Character",
         maxlen=25,
     )
     use_onion_skinning: bpy.props.BoolProperty(
@@ -1485,6 +1494,11 @@ class CreateRig(bpy.types.Operator):
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
     
+    rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+    
     bone_definitions={
         "GP Face Rig Root": {
             "head": (0, .2, 0),
@@ -1574,6 +1588,8 @@ class CreateRig(bpy.types.Operator):
         return False
 
 
+    
+
     def execute(self, context):
 ############################### Widget Creation/Import and Organization ####################
 
@@ -1594,7 +1610,9 @@ class CreateRig(bpy.types.Operator):
             if vgroup_name not in gp_obj.vertex_groups:
                 self.report({'ERROR'}, f"Vertex group '{vgroup_name}' not found.")
                 return {'CANCELLED'}
-            
+        else:
+            self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
+            return {'CANCELLED'}   
         # Retrieve control board and puck locations
         collection_name = "Mouth Rig Control Board Objects"
         collection = bpy.data.collections.get(collection_name)
@@ -1933,179 +1951,163 @@ class CreateRig(bpy.types.Operator):
             #bpy.ops.object.modifier_add(type='GREASE_PENCIL_THICKNESS')
 
             # --- Step 3: Add a modifier to the GP object to scale thickness corecctly using a driven value
-            thick_mod = gp_obj.modifiers.new(
-                name="BoneThickness", 
-                type='GREASE_PENCIL_THICKNESS'
-            )
-            thick_mod.thickness_factor = 1.0  # start at 1.0 
+        thick_mod = gp_obj.modifiers.new(
+            name="BoneThickness", 
+            type='GREASE_PENCIL_THICKNESS'
+        )
+        thick_mod.thickness_factor = 1.0  # start at 1.0 
 
-            # Drive the thickness factor from the bone scale
-            fcurve = thick_mod.driver_add("thickness_factor")
-            driver = fcurve.driver
-            driver.type = 'SCRIPTED'
+        # Drive the thickness factor from the bone scale
+        fcurve = thick_mod.driver_add("thickness_factor")
+        driver = fcurve.driver
+        driver.type = 'SCRIPTED'
 
-            var = driver.variables.new()
-            var.name = "s"
-            var.type = 'TRANSFORMS'
+        var = driver.variables.new()
+        var.name = "s"
+        var.type = 'TRANSFORMS'
 
-            target = var.targets[0]
-            target.id = armature
-            target.bone_target = "GP Mouth Bone"
-            target.transform_type = 'SCALE_AVG'
-            target.transform_space = 'LOCAL_SPACE'
+        target = var.targets[0]
+        target.id = armature
+        target.bone_target = "GP Mouth Bone"
+        target.transform_type = 'SCALE_AVG'
+        target.transform_space = 'LOCAL_SPACE'
 
-            driver.expression = "s"
+        driver.expression = "s"
+    
+            
+        # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
+        ##### Create Mouth Face Rig Control Panel #####
+        #Create control bones
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.context.view_layer.objects.active = armature
+        bpy.ops.object.mode_set(mode='EDIT')
+        #Main control Board
+        main_control_bone = edit_bones.new("Face_Main_Control_Board")
+        main_control_bone.head = self.bone_definitions["Face_Main_Control_Board"]["head"]
+        main_control_bone.tail = self.bone_definitions["Face_Main_Control_Board"]["tail"]
+        main_control_bone.parent = edit_bones.get("GP Face Rig Root")
+        main_control_bone.use_connect = False
+        mouth_coll.assign(main_control_bone)
         
-             
-            # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
-            ##### Create Mouth Face Rig Control Panel #####
-            #Create control bones
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.context.view_layer.objects.active = armature
+        #Main Control Board Label
+        main_control_label_bone = edit_bones.new("Label_Face_Main_Control_Board")
+        main_control_label_bone.head = self.bone_definitions["Label_Face_Main_Control_Board"]["head"]
+        main_control_label_bone.tail = self.bone_definitions["Label_Face_Main_Control_Board"]["tail"]
+        main_control_label_bone.parent = edit_bones.get("Face_Main_Control_Board")
+        main_control_label_bone.use_connect = False
+        mouth_coll.assign(main_control_label_bone)
+        
+        #Canvas bone
+        mouth_position_canvas_bone = edit_bones.new("Face_Mouth_Canvas")
+        mouth_position_canvas_bone.head = self.bone_definitions["Face_Mouth_Canvas"]["head"]
+        mouth_position_canvas_bone.tail = self.bone_definitions["Face_Mouth_Canvas"]["tail"]
+        mouth_position_canvas_bone.parent = main_control_bone
+        mouth_position_canvas_bone.use_connect = False
+        mouth_coll.assign(mouth_position_canvas_bone)
+        
+        
+        #Mouth position controller
+        mouth_position_control_bone = edit_bones.new("Face_Mouth_Position_Control")
+        mouth_position_control_bone.head = self.bone_definitions["Face_Mouth_Position_Control"]["head"]
+        mouth_position_control_bone.tail = self.bone_definitions["Face_Mouth_Position_Control"]["tail"] 
+        mouth_position_control_bone.parent = mouth_position_canvas_bone
+        mouth_position_control_bone.use_connect = False
+        mouth_coll.assign(mouth_position_control_bone)
+        
+        #Mouth Position Label Bone
+        mouth_label_bone = edit_bones.new("Label_Mouth_Position_Control")
+        mouth_label_bone.head = self.bone_definitions["Label_Mouth_Position_Control"]["head"]
+        mouth_label_bone.tail = self.bone_definitions["Label_Mouth_Position_Control"]["tail"]
+        mouth_label_bone.parent = mouth_position_canvas_bone
+        mouth_label_bone.use_connect = False
+        mouth_coll.assign(mouth_label_bone)
+        
+        
+
+        bpy.ops.object.mode_set(mode='POSE')
+        mouth_pose_bone = armature.pose.bones.get("GP Mouth Bone")
+        copy_transform = mouth_pose_bone.constraints.new('COPY_TRANSFORMS')
+        copy_transform.target = armature
+        copy_transform.subtarget = "Face_Mouth_Position_Control"
+        copy_transform.mix_mode = 'AFTER_SPLIT'
+        copy_transform.target_space = 'LOCAL_OWNER_ORIENT'
+        copy_transform.owner_space = 'LOCAL_WITH_PARENT'
+        
+        control_hook_bone_positions = {
+        
+            "Mouth_Top_L":     (self.bone_definitions["Hook_Mouth_Top_L"]["head"], self.bone_definitions["Hook_Mouth_Top_L"]["tail"]),
+            "Mouth_Top_C":     (self.bone_definitions["Hook_Mouth_Top_C"]["head"], self.bone_definitions["Hook_Mouth_Top_C"]["tail"]),
+            "Mouth_Top_R":     (self.bone_definitions["Hook_Mouth_Top_R"]["head"], self.bone_definitions["Hook_Mouth_Top_R"]["tail"]),
+            "Mouth_Bot_L":     (self.bone_definitions["Hook_Mouth_Bot_L"]["head"], self.bone_definitions["Hook_Mouth_Bot_L"]["tail"]),
+            "Mouth_Bot_C":     (self.bone_definitions["Hook_Mouth_Bot_C"]["head"], self.bone_definitions["Hook_Mouth_Bot_C"]["tail"]),
+            "Mouth_Bot_R":     (self.bone_definitions["Hook_Mouth_Bot_R"]["head"], self.bone_definitions["Hook_Mouth_Bot_R"]["tail"]),
+            #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
+        
+        }
+        
+        for bone_name, (head, tail) in control_hook_bone_positions.items():
             bpy.ops.object.mode_set(mode='EDIT')
-            #Main control Board
-            main_control_bone = edit_bones.new("Face_Main_Control_Board")
-            main_control_bone.head = self.bone_definitions["Face_Main_Control_Board"]["head"]
-            main_control_bone.tail = self.bone_definitions["Face_Main_Control_Board"]["tail"]
-            main_control_bone.parent = edit_bones.get("GP Face Rig Root")
-            main_control_bone.use_connect = False
-            mouth_coll.assign(main_control_bone)
-            
-            #Main Control Board Label
-            main_control_label_bone = edit_bones.new("Label_Face_Main_Control_Board")
-            main_control_label_bone.head = self.bone_definitions["Label_Face_Main_Control_Board"]["head"]
-            main_control_label_bone.tail = self.bone_definitions["Label_Face_Main_Control_Board"]["tail"]
-            main_control_label_bone.parent = edit_bones.get("Face_Main_Control_Board")
-            main_control_label_bone.use_connect = False
-            mouth_coll.assign(main_control_label_bone)
-            
-            #Canvas bone
-            mouth_position_canvas_bone = edit_bones.new("Face_Mouth_Canvas")
-            mouth_position_canvas_bone.head = self.bone_definitions["Face_Mouth_Canvas"]["head"]
-            mouth_position_canvas_bone.tail = self.bone_definitions["Face_Mouth_Canvas"]["tail"]
-            mouth_position_canvas_bone.parent = main_control_bone
-            mouth_position_canvas_bone.use_connect = False
-            mouth_coll.assign(mouth_position_canvas_bone)
-           
-           
-            #Mouth position controller
-            mouth_position_control_bone = edit_bones.new("Face_Mouth_Position_Control")
-            mouth_position_control_bone.head = self.bone_definitions["Face_Mouth_Position_Control"]["head"]
-            mouth_position_control_bone.tail = self.bone_definitions["Face_Mouth_Position_Control"]["tail"] 
-            mouth_position_control_bone.parent = mouth_position_canvas_bone
-            mouth_position_control_bone.use_connect = False
-            mouth_coll.assign(mouth_position_control_bone)
-            
-            #Mouth Position Label Bone
-            mouth_label_bone = edit_bones.new("Label_Mouth_Position_Control")
-            mouth_label_bone.head = self.bone_definitions["Label_Mouth_Position_Control"]["head"]
-            mouth_label_bone.tail = self.bone_definitions["Label_Mouth_Position_Control"]["tail"]
-            mouth_label_bone.parent = mouth_position_canvas_bone
-            mouth_label_bone.use_connect = False
-            mouth_coll.assign(mouth_label_bone)
-            
-            
-
-            bpy.ops.object.mode_set(mode='POSE')
-            mouth_pose_bone = armature.pose.bones.get("GP Mouth Bone")
-            copy_transform = mouth_pose_bone.constraints.new('COPY_TRANSFORMS')
-            copy_transform.target = armature
-            copy_transform.subtarget = "Face_Mouth_Position_Control"
-            copy_transform.mix_mode = 'AFTER_SPLIT'
-            copy_transform.target_space = 'LOCAL_OWNER_ORIENT'
-            copy_transform.owner_space = 'LOCAL_WITH_PARENT'
-            
-            control_hook_bone_positions = {
-            
-                "Mouth_Top_L":     (self.bone_definitions["Hook_Mouth_Top_L"]["head"], self.bone_definitions["Hook_Mouth_Top_L"]["tail"]),
-                "Mouth_Top_C":     (self.bone_definitions["Hook_Mouth_Top_C"]["head"], self.bone_definitions["Hook_Mouth_Top_C"]["tail"]),
-                "Mouth_Top_R":     (self.bone_definitions["Hook_Mouth_Top_R"]["head"], self.bone_definitions["Hook_Mouth_Top_R"]["tail"]),
-                "Mouth_Bot_L":     (self.bone_definitions["Hook_Mouth_Bot_L"]["head"], self.bone_definitions["Hook_Mouth_Bot_L"]["tail"]),
-                "Mouth_Bot_C":     (self.bone_definitions["Hook_Mouth_Bot_C"]["head"], self.bone_definitions["Hook_Mouth_Bot_C"]["tail"]),
-                "Mouth_Bot_R":     (self.bone_definitions["Hook_Mouth_Bot_R"]["head"], self.bone_definitions["Hook_Mouth_Bot_R"]["tail"]),
-                #"Mouth_Depth":     ((0, 0, -0.3), (0, 0, 0.4)), -
-            
-            }
-            
-            for bone_name, (head, tail) in control_hook_bone_positions.items():
-                bpy.ops.object.mode_set(mode='EDIT')
-                hook_control_bone_name = bone_name.replace("Mouth_", "Hook_Mouth_")
-                if hook_control_bone_name not in edit_bones:
-                    bone = edit_bones.new(hook_control_bone_name)
-                    # Get relative positions and add them to the Face_Mouth_Position_Control bone's head and tail positions
-                    head = tuple(Vector(head) + Vector((self.bone_definitions["Face_Mouth_Position_Control"]["head"])))
-                    tail = tuple(Vector(tail) + Vector((self.bone_definitions["Face_Mouth_Position_Control"]["tail"])))
-                    bone.head = head 
-                    bone.tail = tail
-                    bone.parent = edit_bones.get("Face_Mouth_Position_Control")  
-                    mouth_coll.assign(bone)
-                    bpy.ops.object.mode_set(mode='POSE')
-                    # Add a copy transforms constraint to the helper controls for each of these bones
-                    pose_bone = armature.pose.bones.get(bone_name)
-                    copy_transforms = pose_bone.constraints.new('COPY_TRANSFORMS')
-                    copy_transforms.target = armature
-                    copy_transforms.subtarget = hook_control_bone_name
-                    copy_transforms.mix_mode = 'AFTER_SPLIT'
-                    copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
-                    copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
-            
-            #Clean up: Delete all helper objects, change collection names, reset modes, and parent the armature to the main control board
-            setup_control_board_shapes(armature)
-            
-            main_drawing_collection = bpy.data.collections.get("Temp Drawing Collection") 
-            main_drawing_collection.name = "GP Face Rig Drawing Collection"
-            context.scene.has_setup_been_run = False
-            context.scene.gp_face_mode = 'NONE'
-            obj = bpy.data.objects.get("GP Temp Face Object")
-            if obj:
-                obj.name = "GP Face Rig Main Mouth"
-                obj.parent = armature
-            
-            deleteobj = bpy.data.objects.get("Target Face Drawing Plane")
-            if deleteobj:
-                bpy.data.objects.remove(deleteobj, do_unlink=True)
-            collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
-            shapecollection = bpy.data.collections.get("BoneShapes")
-            moveobj = bpy.data.objects.get("Mouth Shapes Control Plane")
-            if moveobj:
-                collection.objects.unlink(moveobj)
-                shapecollection.objects.link(moveobj)
-            moveobj = bpy.data.objects.get("Mouth Shape Control Selector")
-            if moveobj:
-                collection.objects.unlink(moveobj)
-                shapecollection.objects.link(moveobj)
-            for obj in collection.objects:
-                if obj.type == 'GREASEPENCIL':
-                    obj.hide_select = True
-             # Parent the armature to the main control board bone
-            armature.name = "GP Mouth Rig"
-            tag_rig(armature)
-            context.scene.rig_created = True
-            self.report({'INFO'}, "Rig successfully created.")
-            return {'FINISHED'}
+            hook_control_bone_name = bone_name.replace("Mouth_", "Hook_Mouth_")
+            if hook_control_bone_name not in edit_bones:
+                bone = edit_bones.new(hook_control_bone_name)
+                # Get relative positions and add them to the Face_Mouth_Position_Control bone's head and tail positions
+                head = tuple(Vector(head) + Vector((self.bone_definitions["Face_Mouth_Position_Control"]["head"])))
+                tail = tuple(Vector(tail) + Vector((self.bone_definitions["Face_Mouth_Position_Control"]["tail"])))
+                bone.head = head 
+                bone.tail = tail
+                bone.parent = edit_bones.get("Face_Mouth_Position_Control")  
+                mouth_coll.assign(bone)
+                bpy.ops.object.mode_set(mode='POSE')
+                # Add a copy transforms constraint to the helper controls for each of these bones
+                pose_bone = armature.pose.bones.get(bone_name)
+                copy_transforms = pose_bone.constraints.new('COPY_TRANSFORMS')
+                copy_transforms.target = armature
+                copy_transforms.subtarget = hook_control_bone_name
+                copy_transforms.mix_mode = 'AFTER_SPLIT'
+                copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
+                copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
         
-
-        self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
-        return {'CANCELLED'}
-    
-class MY_OT_finalize_rig(bpy.types.Operator):
-    """Finalize the rig by applying the shrinkwrap modifier and cleaning up any remaining helper objects"""
-    bl_idname = "object.finalize_rig"
-    bl_label = "Finalize Rig"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-    
-    def execute(self, context):
+        #Clean up: Delete all helper objects, change collection names, reset modes, and parent the armature to the main control board
+        setup_control_board_shapes(armature)
+        
+        main_drawing_collection = bpy.data.collections.get("Temp Drawing Collection") 
+        main_drawing_collection.name = "GP Face Rig Drawing Collection"
+        context.scene.has_setup_been_run = False
+        context.scene.gp_face_mode = 'NONE'
+        obj = bpy.data.objects.get("GP Temp Face Object")
+        if obj:
+            obj.name = "GP Face Rig Main Mouth"
+            obj.parent = armature
+        
+        deleteobj = bpy.data.objects.get("Target Face Drawing Plane")
+        if deleteobj:
+            bpy.data.objects.remove(deleteobj, do_unlink=True)
+        collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+        shapecollection = bpy.data.collections.get("BoneShapes")
+        moveobj = bpy.data.objects.get("Mouth Shapes Control Plane")
+        if moveobj:
+            collection.objects.unlink(moveobj)
+            shapecollection.objects.link(moveobj)
+        moveobj = bpy.data.objects.get("Mouth Shape Control Selector")
+        if moveobj:
+            collection.objects.unlink(moveobj)
+            shapecollection.objects.link(moveobj)
+        for obj in collection.objects:
+            if obj.type == 'GREASEPENCIL':
+                obj.hide_select = True
+            # Parent the armature to the main control board bone
+        armature.name = "GP Mouth Rig"
+        tag_rig(armature)
+        context.scene.rig_created = True
         face_rig = find_rig(context)
         if not face_rig:
             self.report({'ERROR'}, "No valid face rig found.")
             return {'CANCELLED'}
-        
+    
         name = self.rig_name
+        settings = context.scene.grease_pencil_face_rig_settings
+        settings.rig_name = name
+    
         renames = {
             "GP Mouth Rig": f"{name}_Mouth_Rig",
             "Mouth Shapes Control Plane": f"{name}_Mouth_Shapes_Control_Plane",
@@ -2113,19 +2115,64 @@ class MY_OT_finalize_rig(bpy.types.Operator):
             "GP Face Rig Drawing Collection": f"{name}_Face_Rig_Collection",
             "Mouth Rig Control Board Objects": f"{name}_Control_Board_Collection",
             "BoneShapes": f"{name}_BoneShapes",
+            "GPMouthLattice": f"{name}_Mouth_Lattice",
         }
-        
+    
         for old_name, new_name in renames.items():
             obj = bpy.data.objects.get(old_name)
             if obj:
                 obj.name = new_name
+                self.report({'INFO'}, f"Renamed {old_name} to {new_name}")
+            
+        for col in bpy.data.collections:
+            if col.name in renames:
+                col.name = renames[col.name]
                 
-        for collection in bpy.data.collections:
-            if collection.name in renames:
-                collection.name = renames[collection.name]
-        
-        self.report({'INFO'}, "Rig finalized and renamed successfully.")
+        self.report({'INFO'}, "Rig successfully created.")
         return {'FINISHED'}
+        
+
+        
+    
+# class MY_OT_finalize_rig(bpy.types.Operator):
+#     """Finalize the rig by applying the shrinkwrap modifier and cleaning up any remaining helper objects"""
+#     bl_idname = "object.finalize_rig"
+#     bl_label = "Finalize Rig"
+#     bl_options = {'REGISTER', 'UNDO'}
+    
+#     rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
+
+#     def invoke(self, context, event):
+#         return context.window_manager.invoke_props_dialog(self)
+    
+#     def execute(self, context):
+#         face_rig = find_rig(context)
+#         if not face_rig:
+#             self.report({'ERROR'}, "No valid face rig found.")
+#             return {'CANCELLED'}
+        
+#         name = self.rig_name
+#         renames = {
+#             "GP Mouth Rig": f"{name}_Mouth_Rig",
+#             "Mouth Shapes Control Plane": f"{name}_Mouth_Shapes_Control_Plane",
+#             "Mouth Shape Control Selector": f"{name}_Mouth_Shape_Control_Selector",
+#             "GP Face Rig Drawing Collection": f"{name}_Face_Rig_Collection",
+#             "Mouth Rig Control Board Objects": f"{name}_Control_Board_Collection",
+#             "BoneShapes": f"{name}_BoneShapes",
+#             "GPMouthLattice": f"{name}_Mouth_Lattice",
+#         }
+        
+#         for old_name, new_name in renames.items():
+#             obj = bpy.data.objects.get(old_name)
+#             if obj:
+#                 obj.name = new_name
+                
+#         for collection in bpy.data.collections:
+#             if collection.name in renames:
+#                 collection.name = renames[collection.name]
+        
+#         self.report({'INFO'}, "Rig finalized and renamed successfully.")
+#         return {'FINISHED'}
     
 class MY_OT_apply_shrinkwrap(bpy.types.Operator):
     """Bind the face rig to a 3D object using the vertex group created from the grease pencil layers"""
@@ -2263,7 +2310,8 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         
             col.label(text="1. Start")
             col.alert = True
-            col.operator(SetUp.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
+            col.operator(SetUp.bl_idname, text="Create a new GP mouth Rig", icon='FILE_NEW')
+            #col.operator(SetUp.bl_idname, text="Create a new GP Face Rig", icon='FILE_NEW')
             # Step 2: Draw Facial Features by each feature
             col = layout.column(align=True)
             col.separator()
@@ -2365,8 +2413,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         col.enabled = context.scene.has_setup_been_run
         col.operator(CreateRig.bl_idname, text="Create Rig")
         col = layout.column(align=True)
-        col.enabled = context.scene.rig_created
-        col.operator(MY_OT_finalize_rig.bl_idname, text="Finalize Rig (Rename & Clean Up)")
+        
         
         
         
@@ -2427,7 +2474,6 @@ classes = (
     GP_PT_Face_Rig_Workflow_Panel,
     GPAddNewLayer,
     CreateRig,
-    MY_OT_finalize_rig,
     MY_OT_apply_shrinkwrap,
     GPDoneDrawingMouth,
     EyeItem,
