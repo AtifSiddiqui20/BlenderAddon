@@ -75,6 +75,7 @@ import bmesh
 import os
 import math
 import re
+import uuid
 from mathutils import Vector
 from bpy import context
 from bpy.types import (Operator, Menu, Panel, UIList, PropertyGroup)
@@ -84,13 +85,49 @@ from bpy.props import (StringProperty, BoolProperty, IntProperty, FloatProperty,
 #Helper functions
 
 # Set Customs properties for rigs created by this Add-on
-def tag_rig(armature):
-    if armature is None or armature.type != 'ARMATURE':
+def tag_rig_object(object, id, role):
+    if object is None: 
         return
-    armature["is_Atta_gp_face_rig"] = True
-    armature["rig_version"] = (0, 0, 1)  # Example versioning, can be updated as needed
-    armature["rig_name"] = armature.name  # Store the name that the user enters
+    if object.type == 'ARMATURE':
+        object["is_Atta_gp_face_rig"] = True
+        object["rig_name"] = object.name
+    object["rig_version"] = (0, 0, 1)  # Example versioning, can be updated as needed
+      
+    object["rig_id"] = id  # Store the unique ID for the rig
+    object["rig_role"] = role  # Store the role of the rig
+
+def generate_unique_id(prefix="AttaGPFR"):
+    no = str(uuid.uuid4())[:8]  # Shorten the UUID for readability
+    return f"{prefix}_{no}"
+
+def get_rig_objects(rig_id):
+    """Get all objects belonging to a specific rig"""
+    return {
+        obj["rig_role"]: obj
+        for obj in bpy.data.objects
+        if obj.get("rig_id") == rig_id
+    }
+
+def get_rig_object_by_role(rig_id, role):
+    """Get a specific object by its role"""
+    for obj in bpy.data.objects:
+        if obj.get("rig_id") == rig_id and obj.get("rig_role") == role:
+            return obj
+    return None
+
+def find_all_face_rigs():
+    """Find all face rig armatures in the scene"""
+    return [
+        obj for obj in bpy.data.objects
+        if obj.get("gp_face_rig") and obj.get("rig_role") == "armature"
+    ]
     
+def get_rig_id(rig_object):
+    """Get the rig ID from a rig object"""
+    if rig_object and rig_object.get("rig_id"):
+        return rig_object["rig_id"]
+    return None
+
 #Find the rig using custom properties rather than name to avoid issues with multiple rigs
 def find_rig(context):
     for obj in bpy.data.objects:
@@ -315,13 +352,17 @@ class TargetRigSettings(bpy.types.PropertyGroup):
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
-    head_bone_name: bpy.props.PointerProperty(
+    head_bone_name: bpy.props.StringProperty(
         name="Head Bone Name",
-        type=bpy.types.Armature,
         description="Name of the head bone in the target rig",
+        default="Head"
     )
-    
-    
+    face_rig: bpy.props.PointerProperty(
+        name="Face Rig",
+        description="The face rig to append to",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
 
 # Operator to center view on the world origin and get correctly set up 
 class SetUp(bpy.types.Operator):
@@ -1500,6 +1541,7 @@ class CreateRig(bpy.types.Operator):
     bl_label = "Create Rig"
     bl_options = {'REGISTER', 'UNDO'}
     
+    
     rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
     
     def invoke(self, context, event):
@@ -1592,12 +1634,13 @@ class CreateRig(bpy.types.Operator):
             vgroup_name = "GP Mouth Bone"
             return vgroup_name in gp_obj.vertex_groups
         return False
-
+        
 
     
 
     def execute(self, context):
-############################### Widget Creation/Import and Organization ####################
+        rig_id = generate_unique_id()
+############################### Widget Creation/Import and Organization #######################
 
 
 
@@ -1611,6 +1654,7 @@ class CreateRig(bpy.types.Operator):
 
         # Get the active object
         gp_obj = context.active_object
+        tag_rig_object(gp_obj, rig_id, "Grease Pencil Main Shape")
         if gp_obj and gp_obj.type == 'GREASEPENCIL':
             vgroup_name = "GP Mouth Bone"
             if vgroup_name not in gp_obj.vertex_groups:
@@ -1630,6 +1674,7 @@ class CreateRig(bpy.types.Operator):
         armature = context.object
         armature.name = "GP_Rig"
         arm_data = armature.data
+        tag_rig_object(armature, rig_id, "Main Armature")
         bpy.ops.object.mode_set(mode='EDIT')
 
         # Access the armature's edit bones
@@ -1671,6 +1716,7 @@ class CreateRig(bpy.types.Operator):
         named_bone.tail = (0, 0, 0.05)
         named_bone.parent = root_bone
         named_bone.use_connect = False
+        
         hid_mouth_coll.assign(named_bone)
         
         # Retrieve control board and puck locations
@@ -1897,8 +1943,10 @@ class CreateRig(bpy.types.Operator):
         # Find the lattice object and add a CHILD_OF constraint to it
         lattice = bpy.data.objects.get("GPMouthLattice")
         if lattice:
+            tag_rig_object(lattice, rig_id, "Mouth Lattice")
             lattice_constraint = lattice.constraints.new(type =  'CHILD_OF')
             lattice_constraint.target = bpy.data.objects["GP_Rig"]
+            
             #lattice_constraint.subtarget = "GP Mouth Bone" uneeded for some reason
         # Create bones for lattice and assign vertex groups to vertices to mouth bone - set to linear -- actually bspline is fine 
             hook_map = build_mouth_hook_map()
@@ -2103,7 +2151,6 @@ class CreateRig(bpy.types.Operator):
                 obj.hide_select = True
             # Parent the armature to the main control board bone
         armature.name = "GP Mouth Rig"
-        tag_rig(armature)
         context.scene.rig_created = True
         face_rig = find_rig(context)
         if not face_rig:
@@ -2137,49 +2184,7 @@ class CreateRig(bpy.types.Operator):
         self.report({'INFO'}, "Rig successfully created.")
         return {'FINISHED'}
         
-
         
-    
-# class MY_OT_finalize_rig(bpy.types.Operator):
-#     """Finalize the rig by applying the shrinkwrap modifier and cleaning up any remaining helper objects"""
-#     bl_idname = "object.finalize_rig"
-#     bl_label = "Finalize Rig"
-#     bl_options = {'REGISTER', 'UNDO'}
-    
-#     rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
-
-#     def invoke(self, context, event):
-#         return context.window_manager.invoke_props_dialog(self)
-    
-#     def execute(self, context):
-#         face_rig = find_rig(context)
-#         if not face_rig:
-#             self.report({'ERROR'}, "No valid face rig found.")
-#             return {'CANCELLED'}
-        
-#         name = self.rig_name
-#         renames = {
-#             "GP Mouth Rig": f"{name}_Mouth_Rig",
-#             "Mouth Shapes Control Plane": f"{name}_Mouth_Shapes_Control_Plane",
-#             "Mouth Shape Control Selector": f"{name}_Mouth_Shape_Control_Selector",
-#             "GP Face Rig Drawing Collection": f"{name}_Face_Rig_Collection",
-#             "Mouth Rig Control Board Objects": f"{name}_Control_Board_Collection",
-#             "BoneShapes": f"{name}_BoneShapes",
-#             "GPMouthLattice": f"{name}_Mouth_Lattice",
-#         }
-        
-#         for old_name, new_name in renames.items():
-#             obj = bpy.data.objects.get(old_name)
-#             if obj:
-#                 obj.name = new_name
-                
-#         for collection in bpy.data.collections:
-#             if collection.name in renames:
-#                 collection.name = renames[collection.name]
-        
-#         self.report({'INFO'}, "Rig finalized and renamed successfully.")
-#         return {'FINISHED'}
-    
 class MY_OT_apply_shrinkwrap(bpy.types.Operator):
     """Bind the face rig to a 3D object using the vertex group created from the grease pencil layers"""
     bl_idname = "my.apply_shrinkwrap"
@@ -2246,18 +2251,127 @@ class MY_OT_onion_navigate(bpy.types.Operator):
         return {'FINISHED'}
     
 
-class MY_OT_append_to_rig(bpy.types.Operator):
+class MY_OT_append_to_rig_permanent(bpy.types.Operator):
     bl_idname = "my.append_to_rig"
     bl_label = "Append to Rig"
     bl_options = {'REGISTER', 'UNDO'}
+    # This will permanently join the face rig to the target rig, making sure all relationships are maintained
+    
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+    
+    
     
     def execute(self, context):
-        # This operator would handle appending the face rig to another rig, the user will select the head bone of the target rig and then this operator will append it to an exisiting rig
-        #Will need to check each object's modifiers and constrains and change all the names
-        self.report({'INFO'}, "Append to Rig functionality not implemented yet.")
+        settings = context.scene.grease_pencil_face_rig_settings
+        face_rig = context.scene.target_rig_settings.face_rig
+        # Get character namer from rig so that we cna get teh lattice 
+        rig_id = get_rig_id(face_rig)
+        lattice = get_rig_object_by_role(rig_id, "Mouth Lattice")
+        gp_obj = get_rig_object_by_role(rig_id, "Grease Pencil Main Shape")
+        self.report({'INFO'}, f"Found lattice: {lattice.name}")
+        if not face_rig:
+            self.report({'ERROR'}, "No valid face rig found to append to.")
+            return {'CANCELLED'}
+        target_rig = context.scene.target_rig_settings.target_rig
+        head_bone_name = context.scene.target_rig_settings.head_bone_name
+        tag_rig_object(target_rig, rig_id, "Target Rig")
+        
+        #Get my collections
+        bone_collections = [col.name for col in face_rig.data.collections]
+        for col in bone_collections:
+            if col in target_rig.data.collections:
+                pass
+            else:
+                new_col = target_rig.data.collections.new(col)
+                self.report({'INFO'}, f"Created collection {col} in target rig")
+        
+        
+        #The lattice object is not binding well -- rotation axis is strange when moving the head bone
+        
+
+        bone = target_rig.data.bones.get(head_bone_name)
+        if not bone:
+            self.report({'ERROR'}, f"Bone '{head_bone_name}' not found")
+            return {'CANCELLED'}
+
+        
+        pose_bone = target_rig.pose.bones.get(head_bone_name)
+        if pose_bone:
+            # Convert bone head position to world space
+            head_world = target_rig.matrix_world @ pose_bone.head
+            tail_world = target_rig.matrix_world @ pose_bone.tail
+        else:
+            head_world = target_rig.location
+            tail_world = target_rig.location
+
+        face_rig.location = head_world
+        # Push the these locations by a little on the y axis
+        lattice.location = head_world 
+        
+        gp_obj.location = head_world 
+        self.report({'INFO'}, f"Positioned face rig at head bone location: {head_world}")
+        
+        
+        bpy.ops.object.select_all(action='DESELECT')
+        face_rig.select_set(True)
+        target_rig.select_set(True)
+        context.view_layer.objects.active = target_rig
+        bpy.ops.object.join()  # Join the rigs together
+        bpy.ops.object.mode_set(mode='EDIT')
+        target_rig.data.edit_bones["GP Face Rig Root"].head = head_world
+        target_rig.data.edit_bones["GP Face Rig Root"].tail = tail_world
+        target_rig.data.edit_bones["GP Face Rig Root"].parent = target_rig.data.edit_bones[head_bone_name]
+        target_rig.data.edit_bones["GP Face Rig Root"].use_connect = False
+        bpy.ops.object.mode_set(mode='POSE')
+        target_rig.data.bones["GP Face Rig Root"].display_type = 'STICK'
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        
+        lattice_modifiers = lattice.modifiers
+        for mod in lattice_modifiers:
+            if mod.type == 'HOOK':
+                mod.object = target_rig
+        
+        
+        # GP Face Rig Root --> parented to head bone -- move via object mode or pose mode? or edit mode? or add copy transforms constraint to head bone with offset? or just delete and set the head bone as root??
+        # Lattice --> Constraint works its fine
+            # The gp object and the lattice resets position to origin? -- Need to place them by the new face rig root bone position
+        # All lattice hooks need to be re-targeted to the new rig
+        # Collections arent maintained????? maybe we need to create new collections in the target rig and move objects there? 
+        
+        
+        # bpy.ops.object.join()
+        
+        
+        
+        #self.report({'INFO'}, "Append to Rig functionality not implemented yet.")
         return {'FINISHED'}
     
     
+    
+class MY_OT_append_to_rig_simple(bpy.types.Operator):
+    bl_idname = "my.append_to_rig_simple"
+    bl_label = "Append to Rig (Simple)"
+    bl_options = {'REGISTER', 'UNDO'}
+    # This is will append using constrains only, instead of joining rigs
+    
+    def execute(self, context):
+        face_rig = context.scene.target_rig_settings.face_rig
+        target_rig = context.scene.target_rig_settings.target_rig
+        if not face_rig or not target_rig:
+            self.report({'ERROR'}, "Face rig or target rig not set.")
+            return {'CANCELLED'}
+        
+        bpy.ops.object.select_all(action='DESELECT')
+        face_rig.select_set(True)
+        target_rig.select_set(True)
+        context.view_layer.objects.active = target_rig
+        bpy.ops.object.join()  # Join the rigs together
+        
+        self.report({'INFO'}, "Rigs joined together. You may need to reposition the combined rig and reassign constraints manually.")
+        return {'FINISHED'}
 class MY_OT_enter_edit_mode(bpy.types.Operator):
     bl_idname = "my.enter_edit_mode"
     bl_label = "Enter Edit Mode"
@@ -2292,7 +2406,7 @@ class GPFaceRigPanel:
     
     
 class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
-    bl_label = "Grease Pencil Face Rig Workflow"
+    bl_label = "Attaboy's Grease Pencil Face Rig Workflow"
     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
     
     def draw(self, context):
@@ -2324,7 +2438,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         
         box = layout.box()
         row = box.row()
-        row.label(text="1. Start", icon='FILE_NEW')
+        row.label(text="1. Start!", icon='FILE_NEW')
         
         row = box.row()
         row.enabled = not has_setup  # grey out once setup is done
@@ -2349,52 +2463,52 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
 
         # -------------------------
         # STEP 3 — Drawing Controls
-        # Only visible while actively drawing mouths
         # -------------------------
         
         
-        if is_drawing_mouths:
-            box = layout.box()
-            box.label(text="3. Drawing Controls", icon='BRUSH_DATA')
+        
+        box = layout.box()
+        box.enabled = is_drawing_mouths  
+        box.label(text="3. Drawing Controls", icon='BRUSH_DATA')
 
-            box.label(text="Mouth Shape Name:")
-            box.prop(settings, "mouth_shape_name", text="")
-            
-            box.operator(GPAddNewLayer.bl_idname, text="New Layer", icon='ADD')
-            box.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape", icon='CHECKMARK')
-            
+        box.label(text="Mouth Shape Name:")
+        box.prop(settings, "mouth_shape_name", text="")
+        
+        box.operator(GPAddNewLayer.bl_idname, text="New Layer", icon='ADD')
+        box.operator(FinishMouthShape.bl_idname, text="Finish Mouth Shape", icon='CHECKMARK')
+        
+        box.separator()
+        box.operator(GPDoneDrawingMouth.bl_idname, text="Done Drawing", icon='EXPORT')
+
+        # Onion skinning — only show if there are shapes to preview
+        if has_mouth_shapes:
             box.separator()
-            box.operator(GPDoneDrawingMouth.bl_idname, text="Done Drawing", icon='EXPORT')
+            row = box.row()
+            icon = 'ONIONSKIN_ON' if settings.use_onion_skinning else 'ONIONSKIN_OFF'
+            row.prop(settings, "use_onion_skinning", text="Onion Preview", toggle=True, icon=icon)
 
-            # Onion skinning — only show if there are shapes to preview
-            if has_mouth_shapes:
-                box.separator()
-                row = box.row()
-                icon = 'ONIONSKIN_ON' if settings.use_onion_skinning else 'ONIONSKIN_OFF'
-                row.prop(settings, "use_onion_skinning", text="Onion Preview", toggle=True, icon=icon)
+            if settings.use_onion_skinning:
+                col = box.column(align=True)
+                col.prop(settings, "onion_preview_index", text="Shape", slider=False)
+                
+                gp_duplicates = [o for o in collection.objects if o.type == 'GREASEPENCIL']
+                idx = settings.onion_preview_index
+                if gp_duplicates and 0 <= idx < len(gp_duplicates):
+                    col.label(text=f"Showing: {gp_duplicates[idx].name}", icon='GREASEPENCIL')
 
-                if settings.use_onion_skinning:
-                    col = box.column(align=True)
-                    col.prop(settings, "onion_preview_index", text="Shape", slider=False)
-                    
-                    gp_duplicates = [o for o in collection.objects if o.type == 'GREASEPENCIL']
-                    idx = settings.onion_preview_index
-                    if gp_duplicates and 0 <= idx < len(gp_duplicates):
-                        col.label(text=f"Showing: {gp_duplicates[idx].name}", icon='GREASEPENCIL')
+                row = box.row(align=True)
+                op_prev = row.operator("my.onion_navigate", text="Previous", icon='TRIA_LEFT')
+                op_prev.direction = -1
+                op_next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT')
+                op_next.direction = 1
 
-                    row = box.row(align=True)
-                    op_prev = row.operator("my.onion_navigate", text="Previous", icon='TRIA_LEFT')
-                    op_prev.direction = -1
-                    op_next = row.operator("my.onion_navigate", text="Next", icon='TRIA_RIGHT')
-                    op_next.direction = 1
+                box.prop(settings, "onion_opacity", slider=True)
 
-                    box.prop(settings, "onion_opacity", slider=True)
-
-        elif is_drawing_eyes:
-            box = layout.box()
-            box.label(text="3. Drawing Controls", icon='BRUSH_DATA')
-            box.label(text="Eyes coming soon!")
-            box.operator(GoBackToHome.bl_idname, text="Go Back")
+        # elif is_drawing_eyes:
+        #     box = layout.box()
+        #     box.label(text="3. Drawing Controls", icon='BRUSH_DATA')
+        #     box.label(text="Eyes coming soon!")
+        #     box.operator(GoBackToHome.bl_idname, text="Go Back")
 
         # -------------------------
         # STEP 4 — Finalize / Create Rig
@@ -2402,7 +2516,7 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         
         box = layout.box()
         row = box.row()
-        row.label(text="4. Finalize", icon='ARMATURE_DATA')
+        row.label(text="4. Create Rig and Finalize", icon='ARMATURE_DATA')
 
         row = box.row()
         row.enabled = has_setup and not is_drawing  # grey if not ready or still drawing
@@ -2420,10 +2534,23 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         col.enabled = has_rig  # grey until rig is created
 
         rig = find_rig(context)
+        col.label(text="If you have an existing character rig, you can append the face rig to it.", icon='INFO')
+        col.label(text="Select the target rig and the Attaboy Face rig below and click 'Append to Existing Rig'.", icon='INFO')
         if has_rig and rig:
+            col.prop(rig_settings, "face_rig", text="Face Rig Name", icon='ARMATURE_DATA')
             col.prop(rig_settings, "target_rig", icon='ARMATURE_DATA')
             if rig_settings.target_rig:
-                col.operator(MY_OT_append_to_rig.bl_idname, text="Append to Existing Rig")
+                col.prop_search(
+                    rig_settings,
+                    "head_bone_name", 
+                    rig_settings.target_rig.data,
+                    "bones",
+                    icon='BONE_DATA'
+                )
+                if rig_settings.head_bone_name:
+                    col.operator(MY_OT_append_to_rig_permanent.bl_idname, text="Append to Existing Rig")
+                else:
+                    col.label(text="Select the bone that would be the head of the character from the target rig", icon='INFO')
             else:
                 col.label(text="Select a character rig above", icon='INFO')
         else:
@@ -2480,7 +2607,8 @@ classes = (
     GoBackToHome,
     MY_OT_onion_navigate,
     MY_OT_enter_edit_mode,
-    MY_OT_append_to_rig,
+    MY_OT_append_to_rig_permanent,
+    MY_OT_append_to_rig_simple,
     
 )
 
