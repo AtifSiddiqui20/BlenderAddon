@@ -22,29 +22,30 @@ bl_info = {
 
 # Current missing features for mouths: 
 # Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made -DONE
-# Rig ID - custom props added, need to be used more effeectively
-# Cleanup UI, bone sizes/placements and logic to make sure its airtight
+# Rig ID - custom props added, need to be used more effeectively -- DONE
+# Cleanup UI, bone sizes/placements and logic to make sure its airtight -- DONE
 # Edit button? - To be added later
-# # Use Lights Button
-# Append to rig? - Working on it
+# # Use Lights Button -- Later
+# Append to rig? -- DONE
 
 # Current Issues for Eyes
- #Not yet implemented
+# Not yet implemented
 
 # show hidden bones button? - Maybe located in edit mode?
  
 # Set Interpolation Mode for keyframes to constant for mouth puck
 
 
-#General Notes:
-#appending to rigs, making the interface use drivers for x and y movement, allowing it to 
+# General Notes:
+# appending to rigs, making the interface use drivers for x and y movement, allowing it to 
 # snap to shapes rather than freely move about (only for mouth and eye shapes)
 
 # Lattice creation with bone hooks for every part
 # Add Delete Rig button for my collection
 # add custom props to make sure only face rigs are edited/created
-# go into edit mode for the entire rig - needs some way to idetify which part of the rig is being worked
-# on - likely use IDs for each
+# go into edit mode for the entire rig
+#  - needs some way to idetify which part of the rig is being worked
+# on - likely use IDs for each -- DONE
 # Mirror modifier/ button for eyes? Needs to keep origin in mind!
 
 # Adding items during creation to local view?
@@ -57,6 +58,7 @@ bl_info = {
 
 
 #missing features:
+# Wiki
 # Eyes
 # Noses
 # Eyebrows
@@ -68,7 +70,7 @@ bl_info = {
 
 from asyncio import sleep
 import asyncio
-from email.mime import text
+from email.mime import message, text
 
 import bpy
 import bmesh
@@ -1235,9 +1237,9 @@ class GPDoneDrawingMouth(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             gp_obj.select_set(True)
             context.view_layer.objects.active = gp_obj
-            mod = bpy.ops.object.modifier_add(type='GREASE_PENCIL_LATTICE')
-            bpy.context.object.modifiers["Lattice"].object = bpy.data.objects["GPMouthLattice"]
-            
+            mod = gp_obj.modifiers.new(name = "Main Lattice", type='GREASE_PENCIL_LATTICE')
+            mod.object = bpy.data.objects["GPMouthLattice"]
+
             context.collection.objects.unlink(lattice)
             collection.objects.link(lattice)
             # Put GP back to active
@@ -1542,6 +1544,14 @@ class CreateRig(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     
+    # Set up 
+    # | GP Face Rig Root
+    #   |--> GP Mouth Bone/ labels/ canvas / Hooks (parented to root, has vertex group for mouth shapes)
+    #     |---> GP Object 
+    #     |---> Lattice via Constraints (Child of rig, AND constrained to GP Mouth Bone (Also has hook modifiers using vertex groups)
+    #     
+   
+   
     rig_name: bpy.props.StringProperty(name="Rig Name", default="Character")
     
     def invoke(self, context, event):
@@ -1864,13 +1874,16 @@ class CreateRig(bpy.types.Operator):
 
         # Parent the GP object to the armature with weights previously defined
         # Might not need this? Seems to work without parenting, but keeping here just in case
-        # gp_obj = bpy.data.objects["GP Temp Face Object"]
-        # gp_obj.select_set(True)
-        # gp_obj.parent = armature
-        # gp_obj.parent_type = 'ARMATURE'
-        # arm_mod = gp_obj.modifiers.new(name="ArmatureDeform", type='GREASE_PENCIL_ARMATURE')
-        # arm_mod.object = armature
-        # arm_mod.use_vertex_groups = True
+        gp_obj = bpy.data.objects["GP Temp Face Object"]
+        gp_obj.select_set(True)
+        gp_obj.parent = armature
+        gp_obj.parent_type = 'ARMATURE'
+        arm_mod = gp_obj.modifiers.new(name="ArmatureDeform", type='GREASE_PENCIL_ARMATURE')
+        arm_mod.object = armature
+        arm_mod.use_vertex_groups = True
+        
+        
+       
         
 
         # Set up drivers for layer visibility using bones
@@ -1947,7 +1960,7 @@ class CreateRig(bpy.types.Operator):
             lattice_constraint = lattice.constraints.new(type =  'CHILD_OF')
             lattice_constraint.target = bpy.data.objects["GP_Rig"]
             
-            #lattice_constraint.subtarget = "GP Mouth Bone" uneeded for some reason
+            lattice_constraint.subtarget = "GP Mouth Bone"
         # Create bones for lattice and assign vertex groups to vertices to mouth bone - set to linear -- actually bspline is fine 
             hook_map = build_mouth_hook_map()
             bpy.context.view_layer.objects.active = armature
@@ -2085,7 +2098,7 @@ class CreateRig(bpy.types.Operator):
         copy_transform.subtarget = "Face_Mouth_Position_Control"
         copy_transform.mix_mode = 'AFTER_SPLIT'
         copy_transform.target_space = 'LOCAL_OWNER_ORIENT'
-        copy_transform.owner_space = 'LOCAL_WITH_PARENT'
+        copy_transform.owner_space = 'LOCAL'
         
         control_hook_bone_positions = {
         
@@ -2119,7 +2132,7 @@ class CreateRig(bpy.types.Operator):
                 copy_transforms.subtarget = hook_control_bone_name
                 copy_transforms.mix_mode = 'AFTER_SPLIT'
                 copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
-                copy_transforms.owner_space = 'LOCAL_WITH_PARENT'
+                copy_transforms.owner_space = 'LOCAL'
         
         #Clean up: Delete all helper objects, change collection names, reset modes, and parent the armature to the main control board
         setup_control_board_shapes(armature)
@@ -2170,6 +2183,7 @@ class CreateRig(bpy.types.Operator):
             "BoneShapes": f"{name}_BoneShapes",
             "GPMouthLattice": f"{name}_Mouth_Lattice",
         }
+        
     
         for old_name, new_name in renames.items():
             obj = bpy.data.objects.get(old_name)
@@ -2181,6 +2195,13 @@ class CreateRig(bpy.types.Operator):
             if col.name in renames:
                 col.name = renames[col.name]
                 
+        
+        bpy.ops.object.select_all(action='DESELECT')
+        gp_obj.select_set(True)
+        bpy.context.view_layer.objects.active = gp_obj
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        bpy.ops.object.modifier_move_up(modifier="ArmatureDeform")
         self.report({'INFO'}, "Rig successfully created.")
         return {'FINISHED'}
         
@@ -2223,11 +2244,11 @@ class MY_OT_apply_shrinkwrap(bpy.types.Operator):
         if mod:
             mod.offset = self.offset
 
-        offset: bpy.props.FloatProperty(
-            name="Offset",
-            default=0.0,
-            update=update_shrinkwrap  # fires every time the value changes
-        )
+        # offset: bpy.props.FloatProperty(
+        #     name="Offset",
+        #     default=0.0,
+        #     update=update_shrinkwrap()
+        #)
         
         
     
@@ -2252,6 +2273,7 @@ class MY_OT_onion_navigate(bpy.types.Operator):
     
 
 class MY_OT_append_to_rig_permanent(bpy.types.Operator):
+    """Permanently join the face rig to the target rig, making sure all relationships are maintained"""
     bl_idname = "my.append_to_rig"
     bl_label = "Append to Rig"
     bl_options = {'REGISTER', 'UNDO'}
@@ -2259,18 +2281,18 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
     
     
     def invoke(self, context, event):
-        return context.window_manager.invoke_confirm(self, event)
+        return context.window_manager.invoke_confirm(self, event, message="This will permanently join the face rig to the target rig. Are you sure?")
     
     
     
     def execute(self, context):
+        bpy.ops.object.mode_set(mode='OBJECT')
         settings = context.scene.grease_pencil_face_rig_settings
         face_rig = context.scene.target_rig_settings.face_rig
         # Get character namer from rig so that we cna get teh lattice 
         rig_id = get_rig_id(face_rig)
         lattice = get_rig_object_by_role(rig_id, "Mouth Lattice")
         gp_obj = get_rig_object_by_role(rig_id, "Grease Pencil Main Shape")
-        self.report({'INFO'}, f"Found lattice: {lattice.name}")
         if not face_rig:
             self.report({'ERROR'}, "No valid face rig found to append to.")
             return {'CANCELLED'}
@@ -2291,8 +2313,8 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
         #The lattice object is not binding well -- rotation axis is strange when moving the head bone
         
 
-        bone = target_rig.data.bones.get(head_bone_name)
-        if not bone:
+        head_bone = target_rig.data.bones.get(head_bone_name)
+        if not head_bone:
             self.report({'ERROR'}, f"Bone '{head_bone_name}' not found")
             return {'CANCELLED'}
 
@@ -2307,8 +2329,8 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
             tail_world = target_rig.location
 
         face_rig.location = head_world
-        # Push the these locations by a little on the y axis
-        lattice.location = head_world 
+        
+        
         
         gp_obj.location = head_world 
         self.report({'INFO'}, f"Positioned face rig at head bone location: {head_world}")
@@ -2320,19 +2342,86 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
         context.view_layer.objects.active = target_rig
         bpy.ops.object.join()  # Join the rigs together
         bpy.ops.object.mode_set(mode='EDIT')
-        target_rig.data.edit_bones["GP Face Rig Root"].head = head_world
-        target_rig.data.edit_bones["GP Face Rig Root"].tail = tail_world
-        target_rig.data.edit_bones["GP Face Rig Root"].parent = target_rig.data.edit_bones[head_bone_name]
-        target_rig.data.edit_bones["GP Face Rig Root"].use_connect = False
-        bpy.ops.object.mode_set(mode='POSE')
-        target_rig.data.bones["GP Face Rig Root"].display_type = 'STICK'
+        
+        #Attempt to delete the face rig root bone and just parent all the other bones to the head bone -- seems to cause less issues with the lattice deformation, but might need to add a copy transforms constraint to the head bone with offset if we want to maintain an unparented root bone in the future
+        root_bone = target_rig.data.edit_bones.get("GP Face Rig Root")
+        head_bone = target_rig.data.edit_bones.get(head_bone_name)
+        for bone in target_rig.data.edit_bones:
+            if bone.parent and bone.parent.name == root_bone.name:
+                bone.parent = head_bone
+                bone.use_connect = False
+                
+        target_rig.data.edit_bones.remove(root_bone)
+        
+        
+        #Attempt to keep the face rig root bone and just parent it to the head bone, but it seems to cause issues with the lattice deformation, so instead we are deleting the root bone and just parenting all the other bones to the head bone -- might need to add a copy transforms constraint to the head bone with offset if we want to maintain an unparented root bone in the future
+        # target_rig.data.edit_bones["GP Face Rig Root"].head = head_world
+        # target_rig.data.edit_bones["GP Face Rig Root"].tail = tail_world
+        # target_rig.data.edit_bones["GP Face Rig Root"].parent = target_rig.data.edit_bones[head_bone_name]
+        # target_rig.data.edit_bones["GP Face Rig Root"].use_connect = False
+        # bpy.ops.object.mode_set(mode='POSE')
+        # target_rig.data.bones["GP Face Rig Root"].display_type = 'STICK'
         bpy.ops.object.mode_set(mode='OBJECT')
+        
         
         
         lattice_modifiers = lattice.modifiers
         for mod in lattice_modifiers:
             if mod.type == 'HOOK':
                 mod.object = target_rig
+                
+        gp_modifiers = gp_obj.modifiers
+        for mod in gp_modifiers:
+            if mod.type == 'GREASE_PENCIL_ARMATURE':
+                mod.object = target_rig
+        
+        
+        #Need to adjust all the hidden bones constraints
+        bpy.ops.object.mode_set(mode='POSE')
+        
+        mouth_pose_bone = target_rig.pose.bones.get("GP Mouth Bone")
+        bpy.context.view_layer.active_bone = mouth_pose_bone
+        # mouth_pose_bone.display_type = 'OCTAHEDRAL'
+    
+        copy_transform = mouth_pose_bone.constraints.get('Copy Transforms')
+        copy_transform.target = target_rig
+        copy_transform.subtarget = "Face_Mouth_Position_Control"
+        copy_transform.mix_mode = 'AFTER_SPLIT'
+        copy_transform.target_space = 'LOCAL_OWNER_ORIENT'
+        copy_transform.owner_space = 'LOCAL'
+        
+        bone_names = [
+            "Mouth_Top_L",
+            "Mouth_Top_C",
+            "Mouth_Top_R",
+            "Mouth_Bot_L",
+            "Mouth_Bot_C",
+            "Mouth_Bot_R",
+        ]
+        for bone_name in bone_names:
+            pose_bone = target_rig.pose.bones.get(bone_name)
+            if not pose_bone:
+                continue
+            
+            #set shape back to octahedral
+            target_rig.pose.bones[bone_name].display_type = 'OCTAHEDRAL'
+            # Find by type, not name
+            copy_transforms = next(
+                (c for c in pose_bone.constraints if c.type == 'COPY_TRANSFORMS'),
+                None
+            )
+
+            if copy_transforms:
+                self.report({'INFO'}, f"Updating existing constraint for {bone_name}")
+            else:
+                self.report({'WARNING'}, f"Creating new constraint for {bone_name}")
+                copy_transforms = pose_bone.constraints.new('COPY_TRANSFORMS')
+
+            copy_transforms.target = target_rig
+            copy_transforms.subtarget = bone_name.replace("Mouth_", "Hook_Mouth_")
+            copy_transforms.mix_mode = 'AFTER_SPLIT'
+            copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
+            copy_transforms.owner_space = 'LOCAL'
         
         
         # GP Face Rig Root --> parented to head bone -- move via object mode or pose mode? or edit mode? or add copy transforms constraint to head bone with offset? or just delete and set the head bone as root??
@@ -2345,32 +2434,119 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
         # bpy.ops.object.join()
         
         
-        
+        bpy.ops.object.mode_set(mode='OBJECT')
         #self.report({'INFO'}, "Append to Rig functionality not implemented yet.")
         return {'FINISHED'}
     
     
-    
+
+# Does not move with the rig in object mode, need to figure out why that's happening???!!
 class MY_OT_append_to_rig_simple(bpy.types.Operator):
+    """Simply joins the two rigs via constraints. Simpler to use and non-destructive, but will require going into pose mode on both rigs"""
     bl_idname = "my.append_to_rig_simple"
     bl_label = "Append to Rig (Simple)"
     bl_options = {'REGISTER', 'UNDO'}
     # This is will append using constrains only, instead of joining rigs
     
     def execute(self, context):
+        bpy.ops.object.mode_set(mode='OBJECT')
+        settings = context.scene.grease_pencil_face_rig_settings
         face_rig = context.scene.target_rig_settings.face_rig
-        target_rig = context.scene.target_rig_settings.target_rig
-        if not face_rig or not target_rig:
-            self.report({'ERROR'}, "Face rig or target rig not set.")
+        # Get character namer from rig so that we cna get teh lattice 
+        rig_id = get_rig_id(face_rig)
+        lattice = get_rig_object_by_role(rig_id, "Mouth Lattice")
+        gp_obj = get_rig_object_by_role(rig_id, "Grease Pencil Main Shape")
+        if not face_rig:
+            self.report({'ERROR'}, "No valid face rig found to append to.")
             return {'CANCELLED'}
+        target_rig = context.scene.target_rig_settings.target_rig
+        head_bone_name = context.scene.target_rig_settings.head_bone_name
+        tag_rig_object(target_rig, rig_id, "Target Rig")
         
         bpy.ops.object.select_all(action='DESELECT')
         face_rig.select_set(True)
         target_rig.select_set(True)
-        context.view_layer.objects.active = target_rig
-        bpy.ops.object.join()  # Join the rigs together
+        head_bone = target_rig.data.bones.get(head_bone_name)
+        if not head_bone:
+            self.report({'ERROR'}, f"Bone '{head_bone_name}' not found")
+            return {'CANCELLED'}
         
-        self.report({'INFO'}, "Rigs joined together. You may need to reposition the combined rig and reassign constraints manually.")
+        pose_bone = target_rig.pose.bones.get(head_bone_name)
+        if pose_bone:
+            # Convert bone head position to world space
+            head_world = target_rig.matrix_world @ pose_bone.head
+            tail_world = target_rig.matrix_world @ pose_bone.tail
+        else:
+            head_world = target_rig.location
+            tail_world = target_rig.location
+
+        face_rig.location = head_world
+        # Set the root bone to match the head bone position? I dunno maybe this is better?
+        bpy.ops.object.mode_set(mode='EDIT')
+        
+        
+        
+        
+        target_rig.select_set(False)
+        face_rig.select_set(True)
+        bpy.context.view_layer.objects.active = face_rig
+        #Set the Root bone to copy transforms of the head bone -- this is what seems to cause the least issues with the lattice deformation, but it does require going into pose mode on the face rig to move the root bone to the head bone position
+        bpy.ops.object.mode_set(mode='POSE')
+        constraint = face_rig.constraints.new('CHILD_OF')
+        constraint.target = target_rig
+        constraint.subtarget = head_bone_name
+        
+        # Gotta set the constraints AGAIN
+        bpy.ops.object.mode_set(mode='POSE')
+        
+        mouth_pose_bone = face_rig.pose.bones.get("GP Mouth Bone")
+        if mouth_pose_bone:
+            self.report({'INFO'}, "Adding constraint to GP Mouth Bone")
+        else:
+            self.report({'ERROR'}, "GP Mouth Bone not found. Cannot add constraint.")
+            bpy.ops.object.mode_set(mode='OBJECT')
+            return {'CANCELLED'}
+    
+        copy_transform = mouth_pose_bone.constraints.get('Copy Transforms')
+        copy_transform.target = face_rig
+        copy_transform.subtarget = "Face_Mouth_Position_Control"
+        copy_transform.mix_mode = 'AFTER_SPLIT'
+        copy_transform.target_space = 'LOCAL_OWNER_ORIENT'
+        copy_transform.owner_space = 'LOCAL'
+        
+        bone_names = [
+            "Mouth_Top_L",
+            "Mouth_Top_C",
+            "Mouth_Top_R",
+            "Mouth_Bot_L",
+            "Mouth_Bot_C",
+            "Mouth_Bot_R",
+        ]
+        for bone_name in bone_names:
+            pose_bone = target_rig.pose.bones.get(bone_name)
+            if not pose_bone:
+                continue
+
+            # Find by type, not name
+            copy_transforms = next(
+                (c for c in pose_bone.constraints if c.type == 'COPY_TRANSFORMS'),
+                None
+            )
+
+            if copy_transforms:
+                self.report({'INFO'}, f"Updating existing constraint for {bone_name}")
+            else:
+                self.report({'WARNING'}, f"Creating new constraint for {bone_name}")
+                copy_transforms = pose_bone.constraints.new('COPY_TRANSFORMS')
+
+            copy_transforms.target = face_rig
+            copy_transforms.subtarget = bone_name.replace("Mouth_", "Hook_Mouth_")
+            copy_transforms.mix_mode = 'AFTER_SPLIT'
+            copy_transforms.target_space = 'LOCAL_OWNER_ORIENT'
+            copy_transforms.owner_space = 'LOCAL'
+        
+        bpy.ops.object.mode_set(mode='OBJECT')
+        self.report({'INFO'}, "Rigs joined together. Reposition the GP Face Rig Root bone to the head bone and make sure the lattice and GP object are positioned correctly.")
         return {'FINISHED'}
 class MY_OT_enter_edit_mode(bpy.types.Operator):
     bl_idname = "my.enter_edit_mode"
@@ -2398,12 +2574,28 @@ class GoBackToHome(bpy.types.Operator):
 
 
 ##### UI Panel #####
+
+def draw_bone_collecitons_visbilitiy(self, context, layout):
+    rig_settings = context.scene.target_rig_settings
+    face_rig = rig_settings.face_rig
+    if not face_rig:
+        obj = context.active_object
+        if obj and obj.type == 'ARMATURE':
+            face_rig = obj
+            
+    row = layout.box()
+    row.label(text = f"{face_rig.name} Bone Collections", icon='OUTLINER_COLLECTION')
+    for collection in face_rig.data.collections:
+        icon = 'HIDE_OFF' if collection.is_visible else 'HIDE_ON'
+        row.prop(collection, "is_visible", text=collection.name, icon=icon, toggle=True)
+        
+        
+        
 class GPFaceRigPanel:
     """Creates a Panel in the viewport for GP Face Tools"""
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'GP Faces'
-    
     
 class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
     bl_label = "Attaboy's Grease Pencil Face Rig Workflow"
@@ -2534,6 +2726,9 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         col.enabled = has_rig  # grey until rig is created
 
         rig = find_rig(context)
+        col.alert = True
+        col.label(text="Please only click ONE of the buttons below.", icon='ERROR')
+        col.alert = False
         col.label(text="If you have an existing character rig, you can append the face rig to it.", icon='INFO')
         col.label(text="Select the target rig and the Attaboy Face rig below and click 'Append to Existing Rig'.", icon='INFO')
         if has_rig and rig:
@@ -2548,7 +2743,17 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
                     icon='BONE_DATA'
                 )
                 if rig_settings.head_bone_name:
-                    col.operator(MY_OT_append_to_rig_permanent.bl_idname, text="Append to Existing Rig")
+                    
+                    col.alert = False
+                    col.operator(MY_OT_append_to_rig_simple.bl_idname, text="Append Face Rig to Existing Rig (Simple)", icon='LINKED', emboss=True, depress=False)
+                    col.label(text="This will simply add a constraint to the existing rig without maintaining constraints or relationships.", icon='INFO')
+                    col.label(text="You may need to reposition the combined rig and reassign constraints manually.")
+                    col.label(text= "Use this if unsure which to use.")
+                    #Should be red for DANGER!
+                    col.alert = True
+                    col.operator(MY_OT_append_to_rig_permanent.bl_idname, text="Permanently Append Face Rig to Existing Rig (Complex)", icon='LINKED', emboss=True, depress=False)
+                    col.label(text="This will join the rigs together, maintaining all constraints and relationships." , icon='INFO')
+                    col.label(text="Use this if you want a single combined rig.")
                 else:
                     col.label(text="Select the bone that would be the head of the character from the target rig", icon='INFO')
             else:
@@ -2585,6 +2790,20 @@ class GP_PT_Face_Rig_Workflow_Panel(Panel, GPFaceRigPanel):
         else:
             col.label(text="Select a target mesh above", icon='INFO')              
 
+
+# class GP_PT_Bone_Collections_Panel(Panel, GPFaceRigPanel):
+#     """Separate class for rig UI elements to keep things organized"""
+#     bl_label = "Bone Collections"
+#     bl_idname = "VIEW3D_PT_gp_face_rig_bone_collections"
+#     bl_parent_idname = "VIEW3D_PT_gp_face_rig_panel"
+#     bl_options = {'DEFAULT_CLOSED'}
+    
+
+    
+#     def draw(self, context):
+#         draw_bone_collecitons_visbilitiy(self, context, self.layout)
+    
+
 # Registration
 
 classes = (
@@ -2597,6 +2816,7 @@ classes = (
     ViewCenterOriginEyes,
     viewCenterOriginNose,
     GP_PT_Face_Rig_Workflow_Panel,
+    # GP_PT_Bone_Collections_Panel,
     GPAddNewLayer,
     CreateRig,
     MY_OT_apply_shrinkwrap,
