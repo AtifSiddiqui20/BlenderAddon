@@ -1,7 +1,7 @@
 bl_info = {
     "name": "GP Face Tools",
-    "author": "Attaboy!",
-    "version": (0, 0, 2),
+    "author": "Attaboy",
+    "version": (0, 1, 0),
     "blender": (5, 0, 0),
     "category": "Grease Pencil",
     "location": "View 3D > Tool Shelf > GP Face tool",
@@ -27,6 +27,12 @@ bl_info = {
 # Edit button? - To be added later
 # # Use Lights Button -- Later
 # Append to rig? -- DONE
+# Add head lattice and mouth deformation-- will need a toggle for size of mouth deformation or maybe just leave it up to bones?
+#Code cleanup - change names to corect blender naming conventions and make sure rigs are 
+# only accessed via their custom properties in all instances
+# Testing
+# Wiki
+
 
 # Current Issues for Eyes
 # Not yet implemented
@@ -373,11 +379,15 @@ class SetUp(bpy.types.Operator):
     bl_label = "Create Grease Pencil Faces"
     bl_options = {'REGISTER', 'UNDO'}
     
-    #@classmethod
-    #def poll(cls, context):
-        #return context.Scene.gp_active_tab == 'CREATE'
+    #Check if in object mode
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
     
     def execute(self, context):
+        if context.mode != 'OBJECT':
+            self.report({'WARNING'}, "Please switch to Object Mode to run setup.")
+            return {'CANCELLED'}
         bpy.ops.object.select_all(action='DESELECT')
         bpy.ops.view3d.view_axis(type='FRONT')
         # Collection handling
@@ -575,7 +585,7 @@ class MY_OT_set_eye_layer(bpy.types.Operator):
     layer_name: bpy.props.StringProperty()
 
     def execute(self, context):
-        gp = context.scene.active_eye_object  # your tracked GP object
+        gp = context.scene.active_eye_object  
         if not gp or gp.type != 'GPENCIL':
             return {'CANCELLED'}
 
@@ -669,6 +679,10 @@ class ViewCenterOriginMouths(bpy.types.Operator):
             
         
     def execute(self, context):
+        #Check mode and prompt to switch to object mode if not in it
+        if context.mode != 'OBJECT':
+            self.report({'WARNING'}, "Please switch to Object Mode to run this step.")
+            return {'CANCELLED'}
         
         context.scene.gp_face_mode = 'MOUTHS'
         bpy.ops.view3d.view_axis(type='FRONT')
@@ -784,7 +798,7 @@ class FinishMouthShape(bpy.types.Operator):
     """Duplicate the GP object, scale it, move it, and prepare the original for new drawing"""
     bl_idname = "grease_pencil.finish_mouth_shape"
     bl_label = "Finish Mouth Shape"
-    bl_options = {'REGISTER', 'UNDO'}
+    
     
     
 
@@ -798,6 +812,10 @@ class FinishMouthShape(bpy.types.Operator):
         
 
     def execute(self, context):
+        #make sure we are in the correct object mode
+        if context.mode != 'PAINT_GREASE_PENCIL':
+            self.report({'WARNING'}, "Please switch to Draw Mode to run this step.")
+            return {'CANCELLED'}
         
         settings = context.scene.grease_pencil_face_rig_settings
         # Get the name for the mouth shape from the property group
@@ -2380,7 +2398,7 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
         bpy.ops.object.mode_set(mode='POSE')
         
         mouth_pose_bone = target_rig.pose.bones.get("GP Mouth Bone")
-        bpy.context.view_layer.active_bone = mouth_pose_bone
+        # bpy.context.view_layer.active_bone = mouth_pose_bone
         # mouth_pose_bone.display_type = 'OCTAHEDRAL'
     
         copy_transform = mouth_pose_bone.constraints.get('Copy Transforms')
@@ -2404,7 +2422,7 @@ class MY_OT_append_to_rig_permanent(bpy.types.Operator):
                 continue
             
             #set shape back to octahedral
-            target_rig.pose.bones[bone_name].display_type = 'OCTAHEDRAL'
+            # target_rig.pose.bones[bone_name].display_type = 'OCTAHEDRAL'
             # Find by type, not name
             copy_transforms = next(
                 (c for c in pose_bone.constraints if c.type == 'COPY_TRANSFORMS'),
