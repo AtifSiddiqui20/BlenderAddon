@@ -683,6 +683,9 @@ class ViewCenterOriginMouths(bpy.types.Operator):
         if context.mode != 'OBJECT':
             self.report({'WARNING'}, "Please switch to Object Mode to run this step.")
             return {'CANCELLED'}
+        # Deselect all objects
+        for obj in bpy.context.selected_objects:
+            obj.select_set(False)
         
         context.scene.gp_face_mode = 'MOUTHS'
         bpy.ops.view3d.view_axis(type='FRONT')
