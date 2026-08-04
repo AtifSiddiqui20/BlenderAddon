@@ -2,7 +2,7 @@ bl_info = {
     "name": "GP Face Tools",
     "author": "Attaboy",
     "version": (0, 1, 0),
-    "blender": (5, 0, 0),
+    "blender": (5, 2, 0),
     "category": "Grease Pencil",
     "location": "View 3D > Tool Shelf > GP Face tool",
     "description": "Create and edit 2d faces with Grease Pencil",
@@ -21,6 +21,7 @@ bl_info = {
 # Misc Tab: No clue right now
 
 # Current missing features for mouths: 
+# All transforms on the mouth contorl pos controller have a strange offset, making applying scaling, rotation, and placement change wildly.
 # Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made -DONE
 # Rig ID - custom props added, need to be used more effeectively -- DONE
 # Cleanup UI, bone sizes/placements and logic to make sure its airtight -- DONE
@@ -70,6 +71,7 @@ bl_info = {
 # Eyebrows
 # Eyebrow Sliders/controls 
 # Widgets 
+# Add more verbose controls for Onion Skinning - In front or behind, currently the new drawing and old one occupy the same space, which leads to visibility issues
 
 
 
@@ -197,6 +199,7 @@ def do_onion_update():
     onion = gp_duplicates[idx]
     onion.hide_set(False)
     onion.hide_viewport = False
+    onion.location = (0, 0.1, 0)  # Slightly offset in y to avoid z-fighting
     apply_onion_opacity(onion, settings.onion_opacity)
     
     return None  # unregisters timer after one run
