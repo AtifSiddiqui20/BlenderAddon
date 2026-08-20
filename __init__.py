@@ -1587,9 +1587,9 @@ class CreateRig(bpy.types.Operator):
             "tail": (0, .2, .25),
             "deform": True,
         },
-        "GP Mouth Bone": {
-            "head": (0, 0, -0.05),
-            "tail": (0, 0, 0.05),
+        "GP Mouth Bone": { # This is causing weird transforms when rotated - think I solved it by changing the bone head to 0,0,0
+            "head": (0, 0, 0),
+            "tail": (0, 0, .025),
             "deform": True,
         },
         "shape_board": {
@@ -1746,8 +1746,8 @@ class CreateRig(bpy.types.Operator):
         if gp_obj and gp_obj.type == 'GREASEPENCIL':
             vgroup_name = "GP Mouth Bone"
         named_bone = bones.new(vgroup_name)
-        named_bone.head = (0, 0, -0.05)
-        named_bone.tail = (0, 0, 0.05)
+        named_bone.head = (self.bone_definitions["GP Mouth Bone"]["head"])
+        named_bone.tail = (self.bone_definitions["GP Mouth Bone"]["tail"])
         named_bone.parent = root_bone
         named_bone.use_connect = False
         
