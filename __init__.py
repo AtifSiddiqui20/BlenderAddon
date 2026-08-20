@@ -20,8 +20,9 @@ bl_info = {
 # Edit Tab: Will find and identify which rigs the user wants to edit based on custom props - stateful UI 
 # Misc Tab: No clue right now
 
-# Current missing features for mouths: 
-# All transforms on the mouth contorl pos controller have a strange offset, making applying scaling, rotation, and placement change wildly.
+# Current missing features/Issues for mouths:
+# Scaling in the negative direction causes loss of materials? Not sure whats going on with that - need to lock scaling in the z or y dimension
+# All transforms on the mouth contorl pos controller have a strange offset, making applying scaling, rotation, and placement change wildly. - FIXED
 # Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made -DONE
 # Rig ID - custom props added, need to be used more effeectively -- DONE
 # Cleanup UI, bone sizes/placements and logic to make sure its airtight -- DONE
