@@ -21,7 +21,9 @@ bl_info = {
 # Misc Tab: No clue right now
 
 # Current missing features/Issues for mouths:
-# Scaling in the negative direction causes loss of materials? Not sure whats going on with that - need to lock scaling in the z or y dimension
+# Scaling in the negative direction causes loss of materials? Not sure whats going on with that - need to lock scaling in the z or y dimension -- Fixed, caused by driver issue
+
+# Need to implement name checking for the same name already entered, as this leads ot serious issues that dont stop the add-on
 # All transforms on the mouth contorl pos controller have a strange offset, making applying scaling, rotation, and placement change wildly. - FIXED
 # Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made -DONE
 # Rig ID - custom props added, need to be used more effeectively -- DONE
@@ -836,6 +838,14 @@ class FinishMouthShape(bpy.types.Operator):
         if not gp_obj or gp_obj.type != 'GREASEPENCIL':
             self.report({'ERROR'}, "Active object is not a Grease Pencil object.")
             return {'CANCELLED'}
+        #Check for dupplicate names in the collection
+        collection = bpy.data.collections.get("Mouth Rig Control Board Objects")
+        if collection:
+            
+            for obj in collection.objects:
+                if obj.name == mouth_name:
+                    self.report({'WARNING'}, f"A shape with the name '{mouth_name}' already exists. Please choose a different name.")
+                    return {'CANCELLED'}
         
         # if settings.use_framemode:
         #     return self.finish_mouth_shape_frame_mode(context, gp_obj, mouth_name)
@@ -2064,7 +2074,7 @@ class CreateRig(bpy.types.Operator):
         target.transform_type = 'SCALE_AVG'
         target.transform_space = 'LOCAL_SPACE'
 
-        driver.expression = "s"
+        driver.expression = "abs(s)" #The engative value here prevents the thickness from being 0 when scale is negative, useful for chanigng direction of mouth
     
             
         # lattice_constraint.childof_set_inverse(constraint="Child Of", owner='OBJECT')
