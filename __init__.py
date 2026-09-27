@@ -8,6 +8,8 @@ bl_info = {
     "description": "Create and edit 2d faces with Grease Pencil",
 }
 
+
+
 # Current work flow:
 # 1. Start Rig
 # 2. Draw Features
@@ -21,7 +23,8 @@ bl_info = {
 # Misc Tab: No clue right now
 
 # Current missing features/Issues for mouths:
-# Scaling in the negative direction causes loss of materials? Not sure whats going on with that - need to lock scaling in the z or y dimension -- Fixed, caused by driver issue
+# Maybe should add more GP controls in the panel, like layer selection, opacity, etc.
+# BUGS: Extreme rotation of head bone causes mouth to disappeatr and the indivdual mouth shape on the control board get misplaced. Might need to limit rotation? Shrink wrap?
 
 # Need to implement name checking for the same name already entered, as this leads ot serious issues that dont stop the add-on
 # All transforms on the mouth contorl pos controller have a strange offset, making applying scaling, rotation, and placement change wildly. - FIXED
@@ -82,6 +85,7 @@ bl_info = {
 from asyncio import sleep
 import asyncio
 from email.mime import message, text
+from operator import add
 
 import bpy
 import bmesh
@@ -1821,28 +1825,38 @@ class CreateRig(bpy.types.Operator):
             arm_data = armature.data
     
             shape_board_bone = arm_data.edit_bones.get("shape_board_bone")
-    
+        bone_names = []
         for obj in collection.objects:
             if obj.type == 'GREASEPENCIL':
                 bone_name = f"{obj.name}_Shape_Bone"
                 print(f"Creating bone for: {bone_name}")
             
                 bone = arm_data.edit_bones.new(bone_name)
+                bone_names.append(bone_name)
                 bone.head = obj.location
                 bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
                 hid_mouth_coll.assign(arm_data.edit_bones.get(bone_name)) 
-                #add shrinkwrap to each bone to the control board
-#                bpy.ops.object.mode_set(mode='POSE')
-#                pose_bones = armature.pose.bones
-#                pose_bone_mouth_shape = pose_bones[bone_name]
-#                shrinkwrap = pose_bone_mouth_shape.constraints.new('SHRINKWRAP')
-#                shrinkwrap.target = control_board
-#                shrinkwrap.wrap_mode = 'ON_SURFACE'
-#                bpy.ops.object.mode_set(mode='EDIT')
+                # add shrinkwrap to each bone to the control board
+                # bpy.ops.object.mode_set(mode='POSE')
+                # pose_bones = armature.pose.bones
+                # pose_bone_mouth_shape = pose_bones[bone_name]
+                # shrinkwrap = pose_bone_mouth_shape.constraints.new('SHRINKWRAP')
+                # shrinkwrap.target = shape_board_bone
+                # shrinkwrap.wrap_mode = 'ON_SURFACE'
+                # bpy.ops.object.mode_set(mode='EDIT')
             
             if shape_board_bone:
                 bone.parent = shape_board_bone
-    
+        
+        # Add Shrinkwrap Constraints to all shape bones to the control board in Pose mode       
+        bpy.ops.object.mode_set(mode='POSE')
+        for bone_name in bone_names:
+            pose_bone = armature.pose.bones.get(bone_name)
+            if pose_bone:
+                shrinkwrap = pose_bone.constraints.new('SHRINKWRAP')
+                shrinkwrap.target = shape_board
+                shrinkwrap.wrap_mode = 'ON_SURFACE'
+                
     # back to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
     
@@ -1860,6 +1874,7 @@ class CreateRig(bpy.types.Operator):
         
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.constraint.childof_set_inverse(constraint=constraint.name, owner='OBJECT')
+                
             if obj.name == "Mouth Shapes Control Plane":
                 constraint = obj.constraints.new('CHILD_OF')
                 bone_name = "shape_board_bone"
