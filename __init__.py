@@ -20,12 +20,14 @@ bl_info = {
 
 # Create Tab (Currently only tab): No tracking of the rig, just create it.
 # Edit Tab: Will find and identify which rigs the user wants to edit based on custom props - stateful UI 
-# Misc Tab: No clue right now
+# Misc Tab: No clue right now, likley more controls over the rig or the use lights button to toggle lights of all the gp objects in the collection
 
 # Current missing features/Issues for mouths:
 # Maybe should add more GP controls in the panel, like layer selection, opacity, etc.
 # BUGS: Extreme rotation of head bone causes mouth to disappeatr and the indivdual mouth shape on the control board get misplaced. Might need to limit rotation? Shrink wrap?
-
+# Extreme scaling cuases the shapes to disappear.
+# Scaling of the main head bone causes the GP object to not scale thickness, and causes the drivers to fail. - May need to change apprach to custom driver setup for getting closest bone shape instead
+# currently this is mitigated by the fact that scaling the armature doesnt cause the drivers to fail, but scaling the root bone does.
 # Need to implement name checking for the same name already entered, as this leads ot serious issues that dont stop the add-on
 # All transforms on the mouth contorl pos controller have a strange offset, making applying scaling, rotation, and placement change wildly. - FIXED
 # Naming stuff needs work - check for special characters -DONE -Make sure all names are changed during the end so more face rigs can be made -DONE
@@ -1825,14 +1827,14 @@ class CreateRig(bpy.types.Operator):
             arm_data = armature.data
     
             shape_board_bone = arm_data.edit_bones.get("shape_board_bone")
-        bone_names = []
+        control_board_bone_names = []
         for obj in collection.objects:
             if obj.type == 'GREASEPENCIL':
                 bone_name = f"{obj.name}_Shape_Bone"
                 print(f"Creating bone for: {bone_name}")
             
                 bone = arm_data.edit_bones.new(bone_name)
-                bone_names.append(bone_name)
+                control_board_bone_names.append(bone_name)
                 bone.head = obj.location
                 bone.tail = (obj.location.x, obj.location.y, obj.location.z + 0.2)
                 hid_mouth_coll.assign(arm_data.edit_bones.get(bone_name)) 
@@ -1848,14 +1850,7 @@ class CreateRig(bpy.types.Operator):
             if shape_board_bone:
                 bone.parent = shape_board_bone
         
-        # Add Shrinkwrap Constraints to all shape bones to the control board in Pose mode       
-        bpy.ops.object.mode_set(mode='POSE')
-        for bone_name in bone_names:
-            pose_bone = armature.pose.bones.get(bone_name)
-            if pose_bone:
-                shrinkwrap = pose_bone.constraints.new('SHRINKWRAP')
-                shrinkwrap.target = shape_board
-                shrinkwrap.wrap_mode = 'ON_SURFACE'
+        
                 
     # back to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1916,6 +1911,15 @@ class CreateRig(bpy.types.Operator):
         shrinkwrap.target = shape_board
         shrinkwrap.wrap_mode = 'ON_SURFACE'
         # shrinkwrap.use_keep_above_surface = True
+        
+        # Add Shrinkwrap Constraints to all shape bones to the control board in Pose mode       
+        
+        for bone_name in control_board_bone_names:
+            pose_bone = armature.pose.bones.get(bone_name)
+            if pose_bone:
+                shrinkwrap = pose_bone.constraints.new('SHRINKWRAP')
+                shrinkwrap.target = shape_board
+                shrinkwrap.wrap_mode = 'ON_SURFACE'
 
         # Switch back to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1981,7 +1985,16 @@ class CreateRig(bpy.types.Operator):
                     var4.targets[0].transform_type = 'LOC_Z'
                     var4.targets[0].transform_space = 'WORLD_SPACE'
                     
-                    driver.expression = "(abs(puck_x - bone_x) > 0.1) or (abs(puck_z - bone_z) > 0.1)"
+                    var5 = driver.variables.new()
+                    var5.name = "arm_scale"
+                    var5.type = 'TRANSFORMS'
+                    var5.targets[0].id = armature
+                    var5.targets[0].transform_type = 'SCALE_AVG'
+                    var5.targets[0].transform_space = 'WORLD_SPACE'
+
+                    # Threshold scales with size of the armature, so it works for different sized characters
+                    driver.expression = "(abs(puck_x - bone_x) > 0.1 * arm_scale) or (abs(puck_z - bone_z) > 0.1 * arm_scale)"
+                    
                     
 
    
